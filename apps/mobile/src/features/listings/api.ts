@@ -46,6 +46,8 @@ export type Listing = {
 
 export type BrowseFilters = {
   city?: string;
+  q?: string;
+  locality?: string;
   propertyType?: PropertyType;
   rentMin?: number;
   rentMax?: number;

@@ -11,6 +11,7 @@ export type ConversationListingSummary = {
   rent: number;
   city: string;
   locality: string;
+  images?: { cloudinaryUrl: string }[];
 };
 
 export type Message = {
@@ -33,6 +34,8 @@ export type Conversation = {
   seeker: ConversationParty;
   owner: ConversationParty;
   lastMessage: Message | null;
+  // Messages from the other participant not yet read (list endpoint only).
+  unreadCount?: number;
 };
 
 export async function getOrCreateConversation(listingId: string): Promise<Conversation> {

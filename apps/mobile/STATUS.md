@@ -2,7 +2,9 @@
 
 > Ground truth for what's actually built vs. stubbed vs. missing. Update this whenever you finish a chunk of work — don't let it drift, since this file exists specifically so Claude Code doesn't assume something is done (or missing) based on a file merely existing.
 >
-> Last updated: 2026-09-26 (latest) — code-review fixes: sign-out unregisters this device's push token first (`unregisterPushToken`); **Resubmit for Review** on rejected listings; edit screen warns about re-review. `tsc` passes.
+> Last updated: 2026-09-27 — **Redesign carried into key mobile pieces:** `ListingCard` rebuilt (4:3 photo, type/Verified/photo-count/rent overlays, icon amenities, trust footer — solid chips instead of blur for Android performance), browse header as a navy band ("Where do you want to live?"), **server-side debounced search** (`q`) replacing the client-side filter, designed `EmptyState` (`src/components/EmptyState.tsx`), cream canvas, amenity icons, chat types synced (cover image, unreadCount). Verified: `tsc` + `npx expo export --platform android` (bundle compiles, 6.3 MB Hermes). **Not run on a device/emulator.** Not yet ported from web: detail mosaic/lightbox and sticky bar redesign, 6-step create wizard, My Listings dashboard, chats/thread/notifications/profile visual redesign — these still use the pre-redesign layouts (functional).
+>
+> Previously: 2026-09-26 (latest) — code-review fixes: sign-out unregisters this device's push token first (`unregisterPushToken`); **Resubmit for Review** on rejected listings; edit screen warns about re-review. `tsc` passes.
 >
 > Previously: 2026-09-26 (later) — **Owner insights** on the owner's own listing detail (`src/features/listings/components/ListingInsights.tsx`) — same tiles/chart as web; tap a bar to read that day (touch has no hover), 'Show as list' as the table view. `tsc` passes; not run on a device.
 >

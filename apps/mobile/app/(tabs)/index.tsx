@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,7 +8,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Search, SlidersHorizontal } from 'lucide-react-native';
+import { MapPin, Search, SearchX, SlidersHorizontal, Home } from 'lucide-react-native';
+import { EmptyState } from '@/components/EmptyState';
 import { useBrowseListings, useMapPins } from '@/features/listings/hooks';
 import { ListingsMapView } from '@/features/listings/components/ListingsMapView';
 import {
@@ -38,6 +39,13 @@ const PROPERTY_FILTERS: { label: string; value: 'room' | 'flat' | undefined }[] 
 export default function HomeScreen() {
   const [propertyType, setPropertyType] = useState<'room' | 'flat' | undefined>(undefined);
   const [search, setSearch] = useState('');
+  const [q, setQ] = useState('');
+  // Server-side search (apps/api `q`), debounced — replaces the old client-side filter
+  // that only ever searched pages already loaded on the phone.
+  useEffect(() => {
+    const t = setTimeout(() => setQ(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [sort, setSort] = useState<Sort>('newest');
   const [view, setView] = useState<'list' | 'map'>('list');
   const [activePinId, setActivePinId] = useState<string | null>(null);
@@ -48,6 +56,7 @@ export default function HomeScreen() {
   // One filter object for both List and Map — they must always show the same set.
   const filters: BrowseFilters = {
     propertyType,
+    q: q || undefined,
     rentMin: extra.rentMin,
     rentMax: extra.rentMax,
     amenities: extra.amenities.length ? extra.amenities.join(',') : undefined,
@@ -71,25 +80,22 @@ export default function HomeScreen() {
   const listings = data?.pages.flatMap((page) => page.items) ?? [];
   // Client-side filter over already-loaded pages — not a real server-side search yet
   // (apps/api's BrowseListingsDto has no text-search param), see apps/mobile/STATUS.md.
-  const visible = search.trim()
-    ? listings.filter(
-        (l) =>
-          l.title.toLowerCase().includes(search.toLowerCase()) ||
-          l.locality.toLowerCase().includes(search.toLowerCase()),
-      )
-    : listings;
-  const q = search.trim().toLowerCase();
-  const visiblePins = (pins ?? []).filter(
-    (p) => !q || p.title.toLowerCase().includes(q) || p.locality.toLowerCase().includes(q),
-  );
+  const visible = listings;
+  const visiblePins = pins ?? [];
 
   return (
-    <View className="flex-1 bg-surface">
-      <View className="px-4 pt-14 pb-3 bg-white">
+    <View className="flex-1 bg-cream">
+      <View className="bg-navy px-4 pb-4 pt-14">
         <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-2xl font-bold text-ink">Find your room</Text>
+          <View className="flex-1 pr-3">
+            <View className="flex-row items-center" style={{ gap: 4 }}>
+              <MapPin size={13} color="rgba(255,255,255,0.7)" />
+              <Text className="text-xs font-semibold text-white/70">Guwahati</Text>
+            </View>
+            <Text className="mt-1 text-2xl font-bold text-white">Where do you want to live?</Text>
+          </View>
           {/* DESIGN.md `map-toggle` */}
-          <View className="flex-row bg-surface rounded-full p-1" accessibilityRole="tablist">
+          <View className="flex-row rounded-full p-1" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }} accessibilityRole="tablist">
             {(['list', 'map'] as const).map((v) => (
               <Pressable
                 key={v}
@@ -99,7 +105,7 @@ export default function HomeScreen() {
                 className={`rounded-full px-4 py-1.5 ${view === v ? 'bg-primary' : ''}`}
               >
                 <Text
-                  className={`text-sm font-semibold capitalize ${view === v ? 'text-white' : 'text-ink'}`}
+                  className={`text-sm font-semibold capitalize ${view === v ? 'text-white' : 'text-white/80'}`}
                 >
                   {v}
                 </Text>
@@ -107,11 +113,11 @@ export default function HomeScreen() {
             ))}
           </View>
         </View>
-        <View className="flex-row items-center bg-surface rounded-full px-4 h-12">
+        <View className="h-12 flex-row items-center rounded-full bg-white px-4">
           <Search size={18} color={colors.muted} />
           <TextInput
             className="flex-1 ml-2 text-ink"
-            placeholder="Search by locality or title"
+            placeholder="Search locality, landmark or title"
             placeholderTextColor={colors['muted-soft']}
             value={search}
             onChangeText={setSearch}
@@ -144,9 +150,9 @@ export default function HomeScreen() {
               <Pressable
                 key={filter.label}
                 onPress={() => setPropertyType(filter.value)}
-                className={`rounded-full px-4 py-2 ${active ? 'bg-primary' : 'bg-surface'}`}
+                className={`rounded-full px-4 py-2 ${active ? 'bg-primary' : 'bg-white/10'}`}
               >
-                <Text className={`text-sm font-semibold ${active ? 'text-white' : 'text-ink'}`}>
+                <Text className={`text-sm font-semibold ${active ? 'text-white' : 'text-white/85'}`}>
                   {filter.label}
                 </Text>
               </Pressable>
@@ -160,9 +166,9 @@ export default function HomeScreen() {
                 key={s.value}
                 onPress={() => setSort(s.value)}
                 accessibilityLabel={`Sort by ${s.value.replace('_', ' ')}`}
-                className={`rounded-full px-3 py-2 ${active ? 'bg-ink' : 'bg-surface'}`}
+                className={`rounded-full px-3 py-2 ${active ? 'bg-primary' : 'bg-white/10'}`}
               >
-                <Text className={`text-sm font-semibold ${active ? 'text-white' : 'text-ink'}`}>
+                <Text className={`text-sm font-semibold ${active ? 'text-white' : 'text-white/85'}`}>
                   {s.label}
                 </Text>
               </Pressable>
@@ -204,28 +210,25 @@ export default function HomeScreen() {
           refreshing={isRefetching}
           onRefresh={refetch}
           ListEmptyComponent={
-            <View className="items-center justify-center py-20 px-8">
-              {activeFilterCount > 0 || propertyType || search.trim() ? (
-                <>
-                  <Text className="text-muted text-center mb-3">
-                    No listings match your search and filters.
-                  </Text>
-                  <Pressable
-                    onPress={() => {
-                      setExtra(EMPTY_FILTERS);
-                      setPropertyType(undefined);
-                      setSearch('');
-                    }}
-                  >
-                    <Text className="text-ink font-semibold underline">Clear everything</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Text className="text-muted text-center">
-                  No listings yet in Guwahati.{'\n'}Check back soon.
-                </Text>
-              )}
-            </View>
+            activeFilterCount > 0 || propertyType || search.trim() ? (
+              <EmptyState
+                icon={SearchX}
+                title="No homes match that yet"
+                body="Try a wider budget, fewer amenities, or a nearby area. New listings are reviewed and added every day."
+                actionLabel="Clear filters"
+                onAction={() => {
+                  setExtra(EMPTY_FILTERS);
+                  setPropertyType(undefined);
+                  setSearch('');
+                }}
+              />
+            ) : (
+              <EmptyState
+                icon={Home}
+                title="No homes here yet"
+                body="GHOR is onboarding owners across Guwahati. Every listing is reviewed before it appears, so check back soon."
+              />
+            )
           }
           ListFooterComponent={
             isFetchingNextPage ? (
