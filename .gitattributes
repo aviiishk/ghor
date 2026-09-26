@@ -1,0 +1,15 @@
+# Normalize line endings in the repository (LF), whatever each developer's OS/editor
+# does locally. Stops the "LF will be replaced by CRLF" noise and cross-OS diff churn.
+* text=auto
+
+# Binary assets — never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

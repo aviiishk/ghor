@@ -1,0 +1,65 @@
+name: CI
+
+# Runs on every pull request into dev or main, and on pushes to them. A PR can only merge
+# when this is green (enforced via branch protection — see CONTRIBUTING.md).
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API — typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The Prisma client is generated code; it doesn't need a database to generate.
+      - run: npx prisma generate
+        working-directory: apps/api
+      - run: npx tsc --noEmit -p .
+        working-directory: apps/api
+      - run: npm run build
+        working-directory: apps/api
+
+  web:
+    name: Web — typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+        working-directory: apps/web
+      - run: npx next build
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+  mobile:
+    name: Mobile — typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+        working-directory: apps/mobile
