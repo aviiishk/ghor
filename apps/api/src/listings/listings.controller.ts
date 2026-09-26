@@ -45,6 +45,12 @@ export class ListingsController {
     return this.listings.findApproved(query);
   }
 
+  // Popular areas for the browse page — registered before `:id`.
+  @Get('localities')
+  popularLocalities(@Query('city') city?: string) {
+    return this.listings.popularLocalities(city || 'Guwahati');
+  }
+
   // Map view pins — same filters as the feed, whole filtered set, no pagination.
   // Registered before `:id` so "map" isn't parsed as a listing id.
   @Get('map')

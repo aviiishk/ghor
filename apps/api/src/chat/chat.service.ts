@@ -17,7 +17,18 @@ const PARTY_SELECT = {
 } satisfies Prisma.ProfileSelect;
 
 const CONVERSATION_INCLUDE = {
-  listing: { select: { id: true, title: true, rent: true, city: true, locality: true } },
+  // Cover photo included (2026-09-26) so chat screens can show which listing a thread is
+  // about — the single most important piece of context in a rental conversation.
+  listing: {
+    select: {
+      id: true,
+      title: true,
+      rent: true,
+      city: true,
+      locality: true,
+      images: { orderBy: { position: 'asc' }, take: 1, select: { cloudinaryUrl: true } },
+    },
+  },
   seeker: { select: PARTY_SELECT },
   owner: { select: PARTY_SELECT },
 } satisfies Prisma.ConversationInclude;
@@ -75,11 +86,15 @@ export class ChatService {
       include: {
         ...CONVERSATION_INCLUDE,
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+        // Unread = messages from the OTHER participant not yet read (readAt is set when
+        // the recipient opens the thread — see getMessages()).
+        _count: { select: { messages: { where: { readAt: null, senderId: { not: userId } } } } },
       },
     });
-    return conversations.map(({ messages, ...rest }) => ({
+    return conversations.map(({ messages, _count, ...rest }) => ({
       ...rest,
       lastMessage: messages[0] ?? null,
+      unreadCount: _count.messages,
     }));
   }
 
@@ -91,6 +106,16 @@ export class ChatService {
   async getMessages(userId: string, conversationId: string, query: ListMessagesDto) {
     await this.assertParticipant(userId, conversationId);
     const limit = query.limit ?? 30;
+
+    // Opening the thread (first page) marks the other side's messages as read — the
+    // minimal read state behind the unread badges. Not read *receipts* (root CLAUDE.md §3
+    // defers those); nothing is shown to the sender.
+    if (!query.cursor) {
+      await this.prisma.message.updateMany({
+        where: { conversationId, senderId: { not: userId }, readAt: null },
+        data: { readAt: new Date() },
+      });
+    }
 
     const rows = await this.prisma.message.findMany({
       where: { conversationId },

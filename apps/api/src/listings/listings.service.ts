@@ -173,6 +173,21 @@ export class ListingsService {
       city: query.city ?? 'Guwahati',
     };
     if (query.propertyType) where.propertyType = query.propertyType;
+    const q = query.q?.trim();
+    const textFilters: Prisma.ListingWhereInput[] = [];
+    if (q) {
+      textFilters.push({
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { locality: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+    const locality = query.locality?.trim();
+    if (locality) {
+      textFilters.push({ locality: { contains: locality, mode: 'insensitive' } });
+    }
     if (query.rentMin !== undefined || query.rentMax !== undefined) {
       where.rent = {
         ...(query.rentMin !== undefined ? { gte: query.rentMin } : {}),
@@ -191,7 +206,36 @@ export class ListingsService {
         where.institutions = { some: { institutionId: { in: ids } } };
       }
     }
+    if (textFilters.length) {
+      where.AND = [...((where.AND as Prisma.ListingWhereInput[] | undefined) ?? []), ...textFilters];
+    }
     return where;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Popular areas — real counts of live listings per locality (case/whitespace-folded),
+  // with the lowest rent in each. Powers the browse page's area chips; returns [] until
+  // there are listings, so the UI never shows invented areas.
+  // ---------------------------------------------------------------------------
+
+  async popularLocalities(city = 'Guwahati', limit = 8) {
+    const rows = await this.prisma.listing.findMany({
+      where: { status: 'approved', city },
+      select: { locality: true, rent: true },
+      take: 2000,
+    });
+    const byArea = new Map<string, { locality: string; count: number; minRent: number }>();
+    for (const r of rows) {
+      const key = r.locality.trim().toLowerCase();
+      const cur = byArea.get(key);
+      if (cur) {
+        cur.count++;
+        cur.minRent = Math.min(cur.minRent, r.rent);
+      } else {
+        byArea.set(key, { locality: r.locality.trim(), count: 1, minRent: r.rent });
+      }
+    }
+    return [...byArea.values()].sort((a, b) => b.count - a.count || a.locality.localeCompare(b.locality)).slice(0, limit);
   }
 
   // ---------------------------------------------------------------------------

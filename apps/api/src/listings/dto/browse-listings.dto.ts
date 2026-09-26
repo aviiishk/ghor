@@ -1,10 +1,24 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class BrowseListingsDto {
   @IsOptional()
   @IsString()
   city?: string;
+
+  // Free-text search over title / locality / description (case-insensitive). Added for
+  // the 2026-09-26 redesign — the old client-side filter only searched loaded pages.
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  q?: string;
+
+  // Exact-area filter behind the "Popular areas" chips (case-insensitive contains, so
+  // "jalukbari" also matches "Jalukbari Road").
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  locality?: string;
 
   @IsOptional()
   @IsIn(['room', 'flat'])
