@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 import { Providers } from "./providers";
 
-// Native system fonts only (no next/font/google) — see ../../DESIGN.md's Typography
-// section and root CLAUDE.md §16.2. This app used to load Plus Jakarta Sans + Playfair
-// Display; switched to match the rest of the product (2026-07-23).
+// Body text stays on the native system stack; headings use Geist (self-hosted by the
+// `geist` package — no third-party request, no layout shift) via --font-geist-sans.
+// Redesign 2026-09-26: the all-system-font product read as generic; DESIGN.md's
+// Typography section was amended to allow one display face on web only.
 
 export const metadata: Metadata = {
   title: "GHOR - Find Rooms & PGs in Guwahati",
@@ -33,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={GeistSans.variable}>
       <body className="antialiased">
         <Providers>{children}</Providers>
       </body>

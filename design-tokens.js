@@ -44,6 +44,16 @@ const colors = {
   'chat-sent-text': '#FFFFFF',
   'chat-received-bg': '#F1F5F9',
   'chat-received-text': '#0F172A',
+
+  // Redesign 2026-09-26 ("Blue, Navy & Cream") — depth and warmth WITHOUT a second
+  // saturated brand color. Navy is a deep shade of the same blue family (hero bands,
+  // sticky contact bar, dark feature blocks); cream is a warm off-white so sections can
+  // alternate instead of stacking white-on-white; primary-tint is the icon-tile wash.
+  navy: '#0B1B3F',
+  'navy-soft': '#15295A',
+  cream: '#FBF8F3',
+  'cream-deep': '#F3EDE3',
+  'primary-tint': '#DBEAFE',
 };
 
 // NOT wired into either tailwind.config as a scale override — see the comment in
@@ -90,7 +100,12 @@ const fontFamily = {
     'Arial',
     'sans-serif',
   ],
+  // Web only: Geist (self-hosted via the `geist` package, exposed as --font-geist-sans in
+  // apps/web/app/layout.tsx) for headings. React Native ignores the var() entry and falls
+  // through to the system stack, so apps/mobile stays system-font (zero font download on
+  // budget Android — DESIGN.md "Typography", amended 2026-09-26).
   display: [
+    'var(--font-geist-sans)',
     '-apple-system',
     'SF Pro Display',
     'Roboto',

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { Bell, ChevronRight, FileText, LogOut, Pencil, Trash2 } from 'lucide-react';
+import { BadgeCheck, Bell, ChevronRight, Eye, FileText, LayoutList, LogOut, MessageCircle, Pencil, Phone, Trash2 } from 'lucide-react';
+import { Avatar, Badge, IconTile, Skeleton } from '@/components/ui';
 import { useProfile, useUpdateProfile } from '@/features/auth/hooks';
 import { deleteAccount, signOut } from '@/features/auth/api';
 import { DeleteAccountDialog } from '@/features/auth/components/DeleteAccountDialog';
@@ -59,129 +60,123 @@ export default function ProfilePage() {
     }
   }
 
-  if (isLoading || !profile) return <p className="text-muted text-center py-24">Loading…</p>;
+  if (isLoading || !profile) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4 px-4 pt-8 sm:px-6" aria-busy="true">
+        <Skeleton className="h-40 rounded-3xl" />
+        <Skeleton className="h-64 rounded-3xl" />
+      </div>
+    );
+  }
+
+  const isOwner = profile.role === 'owner';
+  const row = 'press flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-cream';
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
-      <div className="flex items-center gap-4 mb-8">
-        <div className="w-16 h-16 rounded-full bg-primary-light flex items-center justify-center shrink-0">
-          <span className="text-primary text-2xl font-bold">
-            {(profile.fullName ?? 'U')[0]!.toUpperCase()}
-          </span>
-        </div>
-        <div className="min-w-0 flex-1">
-          {editingName ? (
-            <div>
-              <div className="flex gap-2">
-                <input
-                  value={nameDraft}
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveName();
-                    if (e.key === 'Escape') setEditingName(false);
-                  }}
-                  maxLength={80}
-                  autoFocus
-                  aria-label="Full name"
-                  className="min-w-0 flex-1 border border-hairline rounded-xl px-3 py-2 text-ink"
-                />
-                <button
-                  onClick={saveName}
-                  disabled={updateProfile.isPending}
-                  className="bg-primary text-white font-semibold rounded-full px-4 disabled:opacity-70"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => setEditingName(false)}
-                  className="text-muted font-semibold px-2"
-                >
-                  Cancel
+    <div className="mx-auto max-w-3xl px-4 pb-20 pt-8 sm:px-6">
+      {/* Identity */}
+      <section className="relative overflow-hidden rounded-3xl bg-navy p-6 text-white sm:p-8">
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/40 blur-3xl" />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
+          <span className="rounded-full ring-4 ring-white/15"><Avatar name={profile.fullName} size="xl" /></span>
+          <div className="min-w-0 flex-1">
+            {editingName ? (
+              <div>
+                <div className="flex gap-2">
+                  <input
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveName();
+                      if (e.key === 'Escape') setEditingName(false);
+                    }}
+                    maxLength={80}
+                    autoFocus
+                    aria-label="Full name"
+                    className="min-w-0 flex-1 rounded-xl bg-white px-3 py-2 text-ink outline-none"
+                  />
+                  <button onClick={saveName} disabled={updateProfile.isPending} className="press rounded-full bg-primary px-4 font-bold text-white disabled:opacity-70">Save</button>
+                  <button onClick={() => setEditingName(false)} className="px-2 font-semibold text-white/70">Cancel</button>
+                </div>
+                {nameError && <p className="mt-1 text-sm text-red-200">{nameError}</p>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h1 className="truncate font-display text-2xl font-bold tracking-tight sm:text-3xl">{profile.fullName ?? 'Unnamed'}</h1>
+                <button onClick={startEditName} aria-label="Edit name" className="rounded-full p-1.5 text-white/70 hover:bg-white/10 hover:text-white">
+                  <Pencil size={16} />
                 </button>
               </div>
-              {nameError && <p className="text-destructive text-sm mt-1">{nameError}</p>}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-ink truncate">
-                {profile.fullName ?? 'Unnamed'}
-              </h1>
-              <button
-                onClick={startEditName}
-                aria-label="Edit name"
-                className="text-muted hover:text-ink p-1"
-              >
-                <Pencil size={16} />
-              </button>
-            </div>
-          )}
-          <p className="text-muted text-sm">{profile.phone ?? 'No phone on file'}</p>
-          <div className="flex items-center gap-2 mt-1.5">
-            <span className="bg-surface rounded-full px-2.5 py-1 text-xs font-semibold text-ink capitalize">
-              {profile.role}
-            </span>
-            {profile.phoneVerified && (
-              <span className="text-success-deep text-xs font-bold">✓ Phone Verified</span>
             )}
+            <p className="mt-1 flex items-center gap-1.5 text-white/70"><Phone size={14} aria-hidden /> {profile.phone ?? 'No phone on file'}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold capitalize">{profile.role === 'seeker' ? 'Renter' : profile.role}</span>
+              {profile.phoneVerified && <Badge tone="success" icon={BadgeCheck}>Phone verified</Badge>}
+            </div>
           </div>
         </div>
+      </section>
+
+      {/* Account */}
+      <h2 className="mb-2 mt-8 px-1 text-xs font-bold uppercase tracking-wider text-muted">Account</h2>
+      <div className="divide-y divide-hairline-soft overflow-hidden rounded-3xl bg-white ring-1 ring-navy/[0.06]">
+        <button onClick={() => router.push('/notifications')} className={row}>
+          <IconTile icon={Bell} size="sm" />
+          <span className="flex-1 font-semibold text-ink">Notifications</span>
+          {unreadCount > 0 && <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-white">{unreadCount}</span>}
+          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
+        </button>
+        <Link href="/chats" className={row}>
+          <IconTile icon={MessageCircle} size="sm" />
+          <span className="flex-1 font-semibold text-ink">Chats</span>
+          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
+        </Link>
+        {isOwner && (
+          <>
+            <Link href="/my-listings" className={row}>
+              <IconTile icon={LayoutList} size="sm" />
+              <span className="flex-1 font-semibold text-ink">My listings</span>
+              <ChevronRight size={18} className="text-muted-soft" aria-hidden />
+            </Link>
+            <Link href={`/owner/${profile.id}`} className={row}>
+              <IconTile icon={Eye} size="sm" />
+              <span className="flex-1">
+                <span className="block font-semibold text-ink">View my public profile</span>
+                <span className="block text-xs text-muted">What renters see when they tap your name</span>
+              </span>
+              <ChevronRight size={18} className="text-muted-soft" aria-hidden />
+            </Link>
+          </>
+        )}
       </div>
 
-      <div className="flex flex-col gap-3">
-        <button
-          onClick={() => router.push('/notifications')}
-          className="flex items-center bg-white border border-hairline rounded-2xl px-4 py-4 text-left"
-        >
-          <Bell size={20} className="text-ink" />
-          <span className="flex-1 text-ink font-semibold ml-3">Notifications</span>
-          {unreadCount > 0 && (
-            <span className="bg-primary text-white text-xs font-bold rounded-full px-2 py-0.5 mr-2">
-              {unreadCount}
-            </span>
-          )}
-          <ChevronRight size={18} className="text-muted-soft" />
-        </button>
-
-        <Link
-          href="/privacy"
-          className="flex items-center bg-white border border-hairline rounded-2xl px-4 py-4"
-        >
-          <FileText size={20} className="text-ink" />
-          <span className="flex-1 text-ink font-semibold ml-3">Privacy Policy</span>
-          <ChevronRight size={18} className="text-muted-soft" />
+      {/* Legal */}
+      <h2 className="mb-2 mt-8 px-1 text-xs font-bold uppercase tracking-wider text-muted">About</h2>
+      <div className="divide-y divide-hairline-soft overflow-hidden rounded-3xl bg-white ring-1 ring-navy/[0.06]">
+        <Link href="/privacy" className={row}>
+          <IconTile icon={FileText} size="sm" tone="cream" />
+          <span className="flex-1 font-semibold text-ink">Privacy Policy</span>
+          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
         </Link>
-
-        <Link
-          href="/terms"
-          className="flex items-center bg-white border border-hairline rounded-2xl px-4 py-4"
-        >
-          <FileText size={20} className="text-ink" />
-          <span className="flex-1 text-ink font-semibold ml-3">Terms of Service</span>
-          <ChevronRight size={18} className="text-muted-soft" />
+        <Link href="/terms" className={row}>
+          <IconTile icon={FileText} size="sm" tone="cream" />
+          <span className="flex-1 font-semibold text-ink">Terms of Service</span>
+          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
         </Link>
+      </div>
 
-        <button
-          onClick={handleSignOut}
-          className="flex items-center bg-white border border-hairline rounded-2xl px-4 py-4 text-left"
-        >
-          <LogOut size={20} className="text-destructive" />
-          <span className="flex-1 text-destructive font-semibold ml-3">Sign Out</span>
-        </button>
-
-        <button
-          onClick={() => setDeleteOpen(true)}
-          className="flex items-center px-4 py-3 mt-4 text-left text-muted hover:text-destructive"
-        >
-          <Trash2 size={18} />
-          <span className="ml-3 text-sm font-semibold">Delete account</span>
+      <div className="mt-8 overflow-hidden rounded-3xl bg-white ring-1 ring-navy/[0.06]">
+        <button onClick={handleSignOut} className={row}>
+          <IconTile icon={LogOut} size="sm" tone="danger" />
+          <span className="flex-1 font-semibold text-destructive-pressed">Sign out</span>
         </button>
       </div>
 
-      <DeleteAccountDialog
-        open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
-        onConfirm={handleDeleteAccount}
-      />
+      <button onClick={() => setDeleteOpen(true)} className="mt-6 inline-flex items-center gap-2 px-2 text-sm font-semibold text-muted hover:text-destructive">
+        <Trash2 size={16} aria-hidden /> Delete account
+      </button>
+
+      <DeleteAccountDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={handleDeleteAccount} />
     </div>
   );
 }

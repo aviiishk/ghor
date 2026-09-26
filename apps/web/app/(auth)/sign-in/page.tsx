@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { sendPhoneOtp } from '@/features/auth/api';
+import { Logo } from '@/components/logo';
 
 export default function SignInPage() {
   const router = useRouter();
@@ -36,10 +37,8 @@ export default function SignInPage() {
 
   return (
     <div className="w-full max-w-sm">
-      <p className="text-4xl font-bold text-ink mb-1">
-        GH<span className="text-primary">●</span>R
-      </p>
-      <h1 className="text-2xl font-bold text-ink mt-4">Welcome back!</h1>
+      <Logo />
+      <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">Welcome back!</h1>
       <p className="text-muted mt-1 mb-8">Login to continue your room search journey.</p>
 
       <label className="block text-sm font-medium text-muted mb-2" htmlFor="phone">

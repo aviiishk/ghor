@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { verifyPhoneOtp, sendPhoneOtp, getProfile } from '@/features/auth/api';
+import { Logo } from '@/components/logo';
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 45;
@@ -56,10 +57,8 @@ function VerifyOtpForm() {
 
   return (
     <div className="w-full max-w-sm">
-      <p className="text-3xl font-bold text-ink mb-1">
-        GH<span className="text-primary">●</span>R
-      </p>
-      <h1 className="text-2xl font-bold text-ink mt-8 mb-1">Verification Code</h1>
+      <Logo />
+      <h1 className="mt-6 mb-1 font-display text-3xl font-bold tracking-tight text-ink">Verification Code</h1>
       <p className="text-muted mb-10">
         Enter the {OTP_LENGTH}-digit code sent to{' '}
         <span className="text-primary font-medium">{phone}</span>

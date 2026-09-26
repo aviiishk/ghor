@@ -11,6 +11,7 @@ export const listingsKeys = {
   similar: (id: string) => ['listings', 'similar', id] as const,
   insights: (id: string) => ['listings', 'insights', id] as const,
   map: (filters: BrowseFilters) => ['listings', 'map', filters] as const,
+  localities: ['listings', 'localities'] as const,
 };
 
 export function useBrowseListings(filters: BrowseFilters) {
@@ -31,6 +32,14 @@ export function useListing(id: string) {
     queryKey: listingsKeys.detail(id),
     queryFn: () => api.getListing(id),
     enabled: !!id,
+  });
+}
+
+export function usePopularLocalities() {
+  return useQuery({
+    queryKey: listingsKeys.localities,
+    queryFn: api.getPopularLocalities,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

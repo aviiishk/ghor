@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { completeOnboarding } from '@/features/auth/api';
+import { Logo } from '@/components/logo';
 
 type Role = 'seeker' | 'owner';
 
@@ -33,10 +34,8 @@ export default function OnboardingPage() {
 
   return (
     <div className="w-full max-w-sm">
-      <p className="text-4xl font-bold text-ink">
-        GH<span className="text-primary">●</span>R
-      </p>
-      <h1 className="text-2xl font-bold text-ink mt-4">Find your next room.</h1>
+      <Logo />
+      <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">Find your next room.</h1>
       <p className="text-primary text-lg font-medium mb-8">Feel at home.</p>
 
       <label className="block text-sm font-medium text-muted mb-3">I am…</label>

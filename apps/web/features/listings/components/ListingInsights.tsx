@@ -165,7 +165,7 @@ export function ListingInsights({ listingId }: { listingId: string }) {
   const { data, isLoading, isError } = useListingInsights(listingId, true);
 
   return (
-    <section className="mt-12 border-t border-hairline pt-8">
+    <section id="insights" className="mt-12 scroll-mt-24 border-t border-hairline pt-8">
       <div className="flex items-baseline justify-between gap-3 mb-5">
         <h2 className="text-xl font-semibold text-ink">Insights</h2>
         <span className="text-xs text-muted">Only you can see this</span>

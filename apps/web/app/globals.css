@@ -29,8 +29,50 @@ body {
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   text-wrap: balance;
+  font-family: var(--font-geist-sans), -apple-system, "SF Pro Display", Roboto, "Segoe UI", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Redesign 2026-09-26 — product UI primitives shared across pages. */
+@layer components {
+  /* Press feedback for every tappable card/button: a quick scale, no shadow change. */
+  .press {
+    @apply transition-transform duration-150 ease-out active:scale-[0.98];
+  }
+  /* Skeleton shimmer: a moving highlight over surface-sunken, not a spinner. */
+  .skeleton {
+    @apply relative overflow-hidden bg-surface-sunken rounded-xl;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+    animation: ghor-shimmer 1.4s ease-in-out infinite;
+  }
+  /* Frosted chip laid over photography (price / count overlays). */
+  .glass-chip {
+    @apply bg-white/85 backdrop-blur-sm text-ink;
+  }
+}
+
+@keyframes ghor-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+  .press {
+    @apply active:scale-100;
+  }
 }
 
 ::selection {
@@ -118,3 +160,11 @@ h3 {
 .ghor-pin { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; @apply bg-ink text-white text-xs font-bold rounded-full px-2.5 py-1 shadow-card cursor-pointer; }
 .ghor-pin--active { @apply bg-primary; }
 .ghor-pin:hover { @apply bg-primary; }
+
+/* Landing locality marquee (sections/landing/Landing.tsx): the list is rendered twice,
+   so translating by -50% loops seamlessly. */
+@keyframes ghor-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}

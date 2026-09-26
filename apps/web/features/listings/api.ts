@@ -47,6 +47,8 @@ export type Listing = {
 
 export type BrowseFilters = {
   city?: string;
+  q?: string;
+  locality?: string;
   propertyType?: PropertyType;
   rentMin?: number;
   rentMax?: number;
@@ -91,6 +93,13 @@ export async function getMapPins(filters: BrowseFilters) {
   const { sort: _sort, ...rest } = filters;
   void _sort;
   return apiRequest<MapPin[]>(`/listings/map${toQueryString(rest)}`);
+}
+
+export type PopularLocality = { locality: string; count: number; minRent: number };
+
+// Real counts of live listings per area — [] when there are none (never invented).
+export async function getPopularLocalities() {
+  return apiRequest<PopularLocality[]>('/listings/localities');
 }
 
 export async function getMyListings() {

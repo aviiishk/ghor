@@ -1,11 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { FinalCta } from "@/sections/final-cta";
-import { Footer } from "@/sections/footer";
-import { Hero } from "@/sections/hero";
-import { HowItWorks } from "@/sections/how-it-works";
-import { Navbar } from "@/sections/navbar";
-import { Waitlist } from "@/sections/waitlist";
+import { Landing } from "@/sections/landing/Landing";
 
 export default async function Home() {
   // Someone who already has an account (a session cookie present, same check
@@ -17,14 +12,5 @@ export default async function Home() {
     redirect("/browse");
   }
 
-  return (
-    <main className="overflow-hidden bg-white">
-      <Navbar />
-      <Hero />
-      <Waitlist />
-      <HowItWorks />
-      <FinalCta />
-      <Footer />
-    </main>
-  );
+  return <Landing />;
 }
