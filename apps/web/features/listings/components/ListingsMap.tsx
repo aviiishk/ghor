@@ -1,0 +1,144 @@
+'use client';
+
+// Leaflet touches `window` at import time, so this module must only ever be loaded
+// client-side — import it via next/dynamic with { ssr: false } (see browse/page.tsx).
+import 'leaflet/dist/leaflet.css';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import L from 'leaflet';
+import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet';
+import { X } from 'lucide-react';
+import type { MapPin } from '../api';
+
+// Guwahati — the only launch city (root CLAUDE.md §2).
+const DEFAULT_CENTER: [number, number] = [26.1445, 91.7362];
+const DEFAULT_ZOOM = 12;
+
+// OSM's public tiles are fine for dev/low traffic but their tile usage policy forbids
+// heavy production use — point NEXT_PUBLIC_MAP_TILE_URL at a real provider (MapTiler,
+// Stadia, etc.) before launch. Attribution is legally required by OSM's licence.
+const TILE_URL =
+  process.env.NEXT_PUBLIC_MAP_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_ATTRIBUTION =
+  process.env.NEXT_PUBLIC_MAP_ATTRIBUTION ??
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+export function formatRentShort(rent: number): string {
+  if (rent < 1000) return `₹${rent}`;
+  const k = rent / 1000;
+  return `₹${Number.isInteger(k) ? k : k.toFixed(1)}k`;
+}
+
+// DESIGN.md `map-pin` / `map-pin-active`: rent pill, ink fill, primary when its preview
+// card is open. Styles live in globals.css (.ghor-pin) since divIcon HTML sits outside
+// React's tree.
+function pinIcon(rent: number, active: boolean) {
+  return L.divIcon({
+    className: '',
+    html: `<span class="ghor-pin${active ? ' ghor-pin--active' : ''}">${formatRentShort(rent)}</span>`,
+    // Zero-size anchor at the coordinate; .ghor-pin centres itself on it with a
+    // translate, so pills of any width ("₹5k" vs "₹12.5k") sit exactly on the point.
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
+  });
+}
+
+// Fit the viewport to the current pin set whenever the filtered set changes, and again
+// when the container is resized (phone rotation, desktop window resize).
+function FitToPins({ pins }: { pins: MapPin[] }) {
+  const map = useMap();
+  const [size, setSize] = useState(0);
+  useEffect(() => {
+    const el = map.getContainer();
+    const ro = new ResizeObserver(() => setSize(el.clientWidth * 10000 + el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [map]);
+  const key = `${pins.map((p) => p.id).join(',')}@${size}`;
+  useEffect(() => {
+    // Leaflet caches the container size; a layout change (rotation, window resize,
+    // the tab switching from hidden) leaves the viewport stale until told.
+    map.invalidateSize();
+    if (!pins.length) return;
+    if (pins.length === 1) {
+      map.setView([pins[0].latitude, pins[0].longitude], 15);
+      return;
+    }
+    map.fitBounds(
+      L.latLngBounds(pins.map((p) => [p.latitude, p.longitude])),
+      { padding: [48, 48], maxZoom: 15 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return null;
+}
+
+export default function ListingsMap({
+  pins,
+  activeId,
+  onSelect,
+}: {
+  pins: MapPin[];
+  activeId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const active = useMemo(() => pins.find((p) => p.id === activeId) ?? null, [pins, activeId]);
+
+  return (
+    <div className="relative h-[70vh] min-h-[420px] rounded-2xl overflow-hidden border border-hairline">
+      <MapContainer
+        center={DEFAULT_CENTER}
+        zoom={DEFAULT_ZOOM}
+        className="h-full w-full"
+        scrollWheelZoom
+      >
+        <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
+        <FitToPins pins={pins} />
+        {pins.map((pin) => (
+          <Marker
+            key={pin.id}
+            position={[pin.latitude, pin.longitude]}
+            icon={pinIcon(pin.rent, pin.id === activeId)}
+            zIndexOffset={pin.id === activeId ? 1000 : 0}
+            eventHandlers={{ click: () => onSelect(pin.id) }}
+            title={`${pin.title}, ${formatRentShort(pin.rent)} per month`}
+          />
+        ))}
+      </MapContainer>
+
+      {/* DESIGN.md `map-preview-card`: photo + title + price only. */}
+      {active && (
+        <div className="absolute bottom-4 left-4 right-4 sm:right-auto sm:w-80 z-[1000]">
+          <div className="relative bg-white rounded-2xl shadow-sheet overflow-hidden">
+            <button
+              onClick={() => onSelect(null)}
+              aria-label="Close preview"
+              className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-white/90 flex items-center justify-center"
+            >
+              <X size={16} className="text-ink" />
+            </button>
+            <Link href={`/listing/${active.id}`} className="flex">
+              <div className="w-28 shrink-0 bg-surface">
+                {active.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={active.imageUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full min-h-24 flex items-center justify-center text-muted-soft text-xs">
+                    No photo
+                  </div>
+                )}
+              </div>
+              <div className="p-3 pr-10 min-w-0">
+                <p className="font-semibold text-ink truncate">{active.title}</p>
+                <p className="text-lg font-bold text-ink mt-1">
+                  ₹{active.rent.toLocaleString('en-IN')}
+                  <span className="text-xs font-medium text-muted">/mo</span>
+                </p>
+              </div>
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

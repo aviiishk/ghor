@@ -1,0 +1,372 @@
+// GHOR database schema. Translated 2026-07-23 from the old Supabase-CLI SQL migrations
+// (packages/backend/supabase/migrations, now removed) after the move to a custom NestJS
+// backend — see ../../../CLAUDE.md §3/§6/§14 and apps/api/STATUS.md.
+//
+// What changed vs. the old migrations: no RLS, no Postgres triggers, no auth.uid()-based
+// policies — all authorization now lives in NestJS guards/services (apps/api/src/**).
+// What's new: RefreshToken and PhoneOtp models, needed because auth is now fully custom
+// (Google OAuth + phone OTP handled by this API, not Supabase Auth).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Runtime queries go through Supabase's transaction-mode pooler (IPv4-only, port 6543).
+  url       = env("DATABASE_URL")
+  // Prisma Migrate needs a non-pooled-transaction connection; Supabase's newer pooler
+  // infra serves that via session mode (port 5432) on the same pooler host, rather than
+  // a separate direct hostname — directUrl is what `prisma migrate`/`db push` actually use.
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  seeker
+  owner
+  admin
+
+  @@map("user_role")
+}
+
+enum PropertyType {
+  room
+  flat
+
+  @@map("property_type")
+}
+
+enum ListingStatus {
+  // Added 2026-07-23, root CLAUDE.md §2 "Additional Airbnb-level polish" (drafts) — owner-
+  // only, unmoderated, never subject to the force-to-pending insert rule. Only leaves this
+  // state when the owner explicitly publishes (draft -> pending).
+  draft
+  pending
+  approved
+  rejected
+  rented
+
+  @@map("listing_status")
+}
+
+enum ReportStatus {
+  pending
+  reviewed
+  dismissed
+
+  @@map("report_status")
+}
+
+// Owner ID verification (Aadhaar/PAN-style) — added 2026-07-23, root CLAUDE.md §2 "Trust &
+// quality signals". Distinct from listing moderation; this is a per-profile KYC status.
+enum IdVerificationStatus {
+  none
+  pending
+  verified
+  rejected
+
+  @@map("id_verification_status")
+}
+
+// Fixed categories a reporter picks from, alongside the existing free-text `reason` —
+// added 2026-07-23 so the admin dashboard can chart report categories, not just read text.
+enum ReportReasonCategory {
+  spam
+  fake
+  inappropriate
+  other
+
+  @@map("report_reason_category")
+}
+
+// Added 2026-07-23, root CLAUDE.md §2 "Nearby institution tags".
+enum InstitutionType {
+  school
+  college
+  university
+
+  @@map("institution_type")
+}
+
+// Added 2026-07-23, root CLAUDE.md §2's in-app notification/activity center. Extendable —
+// this list is deliberately short at MVP, matching only the events already elsewhere
+// triggering a push/email; add a variant here alongside any new push-worthy event, not before.
+enum NotificationType {
+  new_message
+  listing_approved
+  listing_rejected
+  new_review
+
+  @@map("notification_type")
+}
+
+model Profile {
+  id        String   @id @default(uuid())
+  fullName  String?  @map("full_name")
+  phone     String?  @unique
+  googleId  String?  @unique @map("google_id")
+  role      UserRole @default(seeker)
+  banned    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Trust fields — added 2026-07-23, root CLAUDE.md §2 "Trust & quality signals". All of
+  // these are admin-only or system-set in the service layer; a user never writes their own
+  // phoneVerified/idVerificationStatus/idDocumentUrl (self-escalation risk, same pattern as
+  // the existing `role`/`banned` guard — see CLAUDE.md §6 authorization rules).
+  phoneVerified        Boolean              @default(false) @map("phone_verified")
+  lastActiveAt         DateTime?            @map("last_active_at")
+  idVerificationStatus IdVerificationStatus @default(none) @map("id_verification_status")
+  // Sensitive — never returned to any non-admin caller, including the owner's own profile
+  // fetch. Consider moving to a separate access-audited store before this goes live for
+  // real, not just before it's built (root CLAUDE.md §15 production-readiness checklist).
+  idDocumentUrl        String?              @map("id_document_url")
+
+  listings      Listing[]
+  seekerConvos  Conversation[] @relation("SeekerConversations")
+  ownerConvos   Conversation[] @relation("OwnerConversations")
+  messages      Message[]
+  pushTokens    PushToken[]
+  reports       Report[]
+  events        Event[]
+  refreshTokens RefreshToken[]
+  reviews       Review[]
+  notifications Notification[]
+
+  @@map("profiles")
+}
+
+// Rotated on every refresh; store only a hash, never the raw token.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      Profile   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// Short-lived OTP challenges for phone login. One row per send; verified rows should be
+// deleted or marked, not left around for other codepaths to accidentally match.
+model PhoneOtp {
+  id        String   @id @default(uuid())
+  phone     String
+  codeHash  String   @map("code_hash")
+  expiresAt DateTime @map("expires_at")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone])
+  @@map("phone_otps")
+}
+
+model Listing {
+  id               String        @id @default(uuid())
+  ownerId          String        @map("owner_id")
+  owner            Profile       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  propertyType     PropertyType  @map("property_type")
+  rent             Int
+  deposit          Int?
+  locality         String
+  city             String        @default("Guwahati")
+  state            String        @default("Assam")
+  availableFrom    DateTime?     @map("available_from") @db.Date
+  amenities        Json          @default("{}")
+  status           ListingStatus @default(pending)
+  // Added 2026-07-23 — deliberately separate from `status = approved`: a listing can pass
+  // spam/quality moderation without anyone having verified the property in person yet.
+  // Admin/agent-set only. Drives a distinct "Property Verified" badge (root CLAUDE.md §2).
+  propertyVerified Boolean       @default(false) @map("property_verified")
+  // Map fields, added 2026-07-23 (§2 "Map view") — populated server-side by geocoding the
+  // locality/city/state text above on create/update. Never client-settable directly.
+  // Nullable: geocoding can fail, and the listing still works in list view without it.
+  latitude         Float?
+  longitude        Float?
+  // Rating aggregates, added 2026-07-23 (§2 "Reviews & ratings") — denormalized from
+  // `reviews`, recomputed on review create/hide. avgRating is nullable (not zero) to
+  // distinguish "no reviews yet" from "reviewed and rated zero."
+  avgRating        Float?        @map("avg_rating")
+  reviewCount      Int           @default(0) @map("review_count")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  images        ListingImage[]
+  conversations Conversation[]
+  reports       Report[]
+  institutions  ListingInstitution[]
+  reviews       Review[]
+
+  @@index([status, city, createdAt(sort: Desc)])
+  @@index([status, city, propertyType, createdAt(sort: Desc)])
+  @@index([ownerId])
+  @@map("listings")
+}
+
+model ListingImage {
+  id            String  @id @default(uuid())
+  listingId     String  @map("listing_id")
+  listing       Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  cloudinaryUrl String  @map("cloudinary_url")
+  position      Int     @default(0)
+
+  @@index([listingId])
+  @@map("listing_images")
+}
+
+// Curated/admin-managed list — root CLAUDE.md §2 "Nearby institution tags". Deliberately
+// not user-generated free text; see that section for why (tag fragmentation breaks
+// filtering). `city` included from day one so multi-city expansion (§2 launch geography)
+// only needs more seed rows, not a schema change.
+model Institution {
+  id        String          @id @default(uuid())
+  name      String
+  type      InstitutionType
+  city      String          @default("Guwahati")
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  listings ListingInstitution[]
+
+  @@map("institutions")
+}
+
+// Many-to-many join: a listing can tag multiple institutions (e.g. near both a university
+// and a coaching center). Owner-created/deleted only for their own listings.
+model ListingInstitution {
+  listingId     String      @map("listing_id")
+  listing       Listing     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  institutionId String      @map("institution_id")
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  @@id([listingId, institutionId])
+  @@index([institutionId])
+  @@map("listing_institutions")
+}
+
+// Unique on (listingId, seekerId) so re-contacting the same listing reuses the thread.
+model Conversation {
+  id            String    @id @default(uuid())
+  listingId     String    @map("listing_id")
+  listing       Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  seekerId      String    @map("seeker_id")
+  seeker        Profile   @relation("SeekerConversations", fields: [seekerId], references: [id], onDelete: Cascade)
+  ownerId       String    @map("owner_id")
+  owner         Profile   @relation("OwnerConversations", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastMessageAt DateTime? @map("last_message_at")
+
+  messages Message[]
+
+  @@unique([listingId, seekerId])
+  @@index([seekerId])
+  @@index([ownerId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String       @map("sender_id")
+  sender         Profile      @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+  readAt         DateTime?    @map("read_at")
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model PushToken {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  user          Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expoPushToken String   @map("expo_push_token")
+  deviceId      String?  @map("device_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, expoPushToken])
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+// Tunables (ad frequency, page size, report threshold, feature flags) editable without a
+// new API deploy or app store release — root CLAUDE.md §14.6.
+model AppConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("app_config")
+}
+
+model Report {
+  id             String               @id @default(uuid())
+  listingId      String               @map("listing_id")
+  listing        Listing              @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reporterId     String               @map("reporter_id")
+  reporter       Profile              @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason         String
+  // Fixed category the reporter picks (a dropdown), added 2026-07-23 alongside the
+  // free-text `reason` above — lets the admin dashboard chart categories, not just read text.
+  reasonCategory ReportReasonCategory @default(other) @map("reason_category")
+  status         ReportStatus         @default(pending)
+  createdAt      DateTime             @default(now()) @map("created_at")
+
+  @@index([listingId])
+  @@map("reports")
+}
+
+model Event {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  user       Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  eventName  String   @map("event_name")
+  properties Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("events")
+}
+
+// Added 2026-07-23, root CLAUDE.md §2 "Reviews & ratings". Gated in the service layer (not
+// enforceable at the schema level): creation requires an existing `Conversation` between
+// reviewerId and the listing's ownerId — see CLAUDE.md §6's authorization rules. Not
+// pre-moderated; `hidden` is the admin lever, not a `pending` gate, so reviews stay
+// immediate — closer to the trust signal Airbnb reviews actually are.
+model Review {
+  id         String   @id @default(uuid())
+  listingId  String   @map("listing_id")
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reviewerId String   @map("reviewer_id")
+  reviewer   Profile  @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  rating     Int
+  comment    String?
+  hidden     Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([listingId, reviewerId])
+  @@index([listingId])
+  @@map("reviews")
+}
+
+// Added 2026-07-23, root CLAUDE.md §2's in-app notification/activity center. Written
+// server-side by apps/api whenever it would otherwise send a push/email — this is the
+// durable, in-app-readable record of the same events, not a parallel system to keep in
+// sync. Matters most on apps/web, which gets no mobile push at all.
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  user      Profile          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  payload   Json?
+  readAt    DateTime?        @map("read_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}

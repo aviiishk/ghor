@@ -1,0 +1,60 @@
+# Dependencies (npm workspaces hoists most of this to the root)
+node_modules/
+
+# Environment files — never commit real secrets
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Expo (apps/mobile)
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+/apps/mobile/ios
+/apps/mobile/android
+
+# Next.js (apps/web)
+.next/
+out/
+.vercel/
+
+# Google Apps Script local metadata (apps/web)
+.clasp.json
+.clasprc.json
+
+# Supabase CLI local state (packages/backend)
+supabase/.temp/
+supabase/.branches/
+
+# Build artifacts / logs
+build/
+coverage/
+*.tsbuildinfo
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.log*
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.pem
+.idea/
+
+# Accidental typo file carried over from ghor-web
+.gitnignore
+
+# Playwright MCP browser-test artifacts (screenshots, snapshots)
+.playwright-mcp/

@@ -1,0 +1,7 @@
+{
+  "name": "ghor",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ]
+}
