@@ -709,9 +709,33 @@ All interactive elements meet WCAG AA (≥44×44px). `{component.button-primary}
 
 ---
 
+## Redesign Amendments (2026-09-26) — "Blue, Navy & Cream"
+
+The founder judged the shipped UI "dull, blank, generic — a CRUD app, not a marketplace". The audit found the cause was **composition, not palette**: white cards on a white/slate canvas, one font at similar sizes, text-only status and empty states, and a build that had drifted far from the approved mockups in `/assets` (photo overlays, icon-led amenities, owner card, sticky price bar were all missing). Trust-first stays; these amendments change how the tokens are *used*. Where this section conflicts with anything above, **this section wins**.
+
+**Tokens added (in `design-tokens.js`) — depth and warmth without a second saturated brand color:**
+- `navy` #0B1B3F / `navy-soft` #15295A — a deep shade of the same blue family. Hero/search bands, the sticky contact bar, dark feature blocks, active filter chips, the admin header.
+- `cream` #FBF8F3 / `cream-deep` #F3EDE3 — warm off-white. The product canvas is now `cream` (was `surface`), so white cards read as surfaces instead of floating white-on-white; `cream-deep` for secondary tiles.
+- `primary-tint` #DBEAFE — icon-tile washes.
+- Locked tokens unchanged: `primary` #2563EB, all semantic colors, the four radius tiers. Green is still verification-only.
+
+**Typography:** one display face on **web only** — Geist, self-hosted via the `geist` package (`--font-geist-sans`, no third-party request, no layout shift) — for all `h1`–`h4`, with tight tracking (-0.02em product, down to -0.04em marketing). Body text stays on the system stack. `apps/mobile` stays 100% system font (no font download on budget Android); `fontFamily.display` lists the CSS var first, which React Native ignores.
+
+**Elevation:** still flat-by-default, but two additions: a soft "lifted" shadow (`0 18px 40px -18px rgba(11,27,63,.35)`) for hovered/featured cards and the sticky contact card, and frosted `glass-chip` overlays (white/85 + blur on web; solid white/92 on mobile — blur is costly on Android) for text laid over photography.
+
+**Components (single implementations):** `apps/web/components/ui` — `Badge`, `VerifiedBadge`, `StatusBadge` (replaces `StatusPill`; statuses read Live / In review / Needs changes / Draft / Rented), `PriceTag`, `Chip`, `SectionHeader`, `IconTile`, `Avatar` (deterministic initials — no profile photos exist), `EmptyState`, `Skeleton`, `SkeletonListingCard`. Mobile has `src/components/EmptyState.tsx`. Amenities are icon-led everywhere via `amenityIcon()` / `amenityLabel()`.
+
+**Photography:** listing cards are 4:3 with overlays (type, "Verified", photo count, rent on a frosted chip, availability when known); detail uses a gapless mosaic (1 + up to 4) with a full-screen lightbox on web and a swipe strip + "1 / N" counter on phones. Landing imagery is cropped from the approved mockup renders in `/assets` (illustrative only, never presented as a live listing) — replace with real photography once owners onboard.
+
+**Motion:** GSAP only on the marketing landing page, always behind `prefers-reduced-motion`, content visible by default, with a 2.5s force-finish safety net. Product screens get only press (`.press` scale 0.98), hover, sheet/modal and skeleton shimmer.
+
+**Empty & loading states:** every list has a designed `EmptyState` (icon composition + human title + one line + next action) and a layout-matched skeleton — never a bare spinner or "No data found".
+
+**Honesty rule (enforced during the redesign):** no invented listings, ratings, testimonials, user counts or partner logos. Discovery sections (Popular areas, Recently added, Under ₹7,000) render only when real API data backs them. The previous landing page's fabricated social proof ("Trusted by…", 5 stars, "37 spots claimed", placeholder avatars) was removed.
+
 ## Known Gaps
 
-- **Map provider not yet chosen** (root `CLAUDE.md` §2 "Map view") — `{component.map-pin}`/`{component.map-toggle}` are speced generically; the actual map rendering (Google Maps vs. Mapbox/Leaflet) will constrain exact pin/marker implementation once picked.
+- ~~**Map provider not yet chosen**~~ — resolved 2026-09-25: OpenStreetMap (Leaflet on web and in a mobile WebView; rent-pill pins as specced). (root `CLAUDE.md` §2 "Map view") — `{component.map-pin}`/`{component.map-toggle}` are speced generically; the actual map rendering (Google Maps vs. Mapbox/Leaflet) will constrain exact pin/marker implementation once picked.
 - **Browse-feed grid layout for `apps/web` is still unresolved** (`apps/web/CLAUDE.md`) — affects how `map-toggle`'s "List" view and the map view itself lay out side-by-side or stacked on desktop.
 - **No skeleton-loading component spec yet beyond the token** — `{component.skeleton-block}` exists as a color/radius token but shapes (card-skeleton, row-skeleton) per screen aren't laid out.
 - **No dark mode.** `app.config.ts` sets `userInterfaceStyle: 'light'` — this file has no dark-surface component variants beyond the single `{colors.surface-dark}` token used for the ad-interstitial backdrop. A real dark mode is not in scope.
