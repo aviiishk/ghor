@@ -1,14 +1,18 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
+  IsISO8601,
   IsIn,
   IsInt,
-  IsISO8601,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
+  Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -16,8 +20,15 @@ import {
 // Photos are uploaded client-side to Cloudinary (root CLAUDE.md §14.7) — this DTO only
 // ever receives the resulting URLs, never a file.
 class ListingImageInput {
+  // Only our own image host (security review 2026-09-26): an arbitrary URL here let a
+  // listing point its photos at any external server — a tracking pixel on every
+  // viewer, or content that never passed through our upload path.
   @IsString()
   @IsNotEmpty()
+  @MaxLength(500)
+  @Matches(/^https:\/\/res\.cloudinary\.com\/[\w-]+\/image\/upload\//, {
+    message: 'cloudinaryUrl must be a Cloudinary image URL',
+  })
   cloudinaryUrl!: string;
 
   @IsInt()
@@ -25,13 +36,17 @@ class ListingImageInput {
   position!: number;
 }
 
+// Size limits (security review 2026-09-26): unbounded strings/arrays let one request
+// store megabytes in a listing that every browse page then ships to every client.
 export class CreateListingDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(120)
   title!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   description?: string;
 
   @IsIn(['room', 'flat'])
@@ -39,6 +54,7 @@ export class CreateListingDto {
 
   @IsInt()
   @Min(1)
+  @Max(10_000_000)
   rent!: number;
 
   @IsOptional()
@@ -53,6 +69,7 @@ export class CreateListingDto {
   )
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   locality!: string;
 
   @IsOptional()
@@ -73,6 +90,7 @@ export class CreateListingDto {
   // whatever was set here, root CLAUDE.md §2/§6.
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(20)
   @ValidateNested({ each: true })
   @Type(() => ListingImageInput)
   images?: ListingImageInput[];
@@ -81,6 +99,7 @@ export class CreateListingDto {
   // against the real table in the service layer, not just UUID-shape here.
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(20)
   @IsUUID('4', { each: true })
   institutionIds?: string[];
 }

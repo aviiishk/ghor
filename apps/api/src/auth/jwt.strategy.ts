@@ -35,12 +35,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     //    and 500'd (found live 2026-09-25), and a banned user kept full access until
     //    expiry. updateMany (not update) so "no such active profile" is a count of 0, not
     //    a thrown Prisma error.
-    const { count } = await this.prisma.profile.updateMany({
-      where: { id: payload.sub, banned: false },
-      data: { lastActiveAt: new Date() },
+    // 3. (security review 2026-09-26) The role comes from the DATABASE, not the token's
+    //    claim — AdminGuard trusts req.user.role, and a claim-based role let a demoted
+    //    admin keep admin access until their token expired.
+    const profile = await this.prisma.profile.findUnique({
+      where: { id: payload.sub },
+      select: { role: true, banned: true },
     });
-    if (count === 0) throw new UnauthorizedException();
+    if (!profile || profile.banned) throw new UnauthorizedException();
 
-    return { userId: payload.sub, role: payload.role };
+    this.prisma.profile
+      .update({
+        where: { id: payload.sub },
+        data: { lastActiveAt: new Date() },
+      })
+      .catch(() => {});
+
+    return { userId: payload.sub, role: profile.role };
   }
 }

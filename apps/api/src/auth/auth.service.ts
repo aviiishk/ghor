@@ -20,6 +20,11 @@ import { EventsService } from '../events/events.service';
 const OTP_LENGTH = 6;
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000; // 1 minute
+// Security review 2026-09-26: the 60s cooldown alone allowed ~1,440 SMS per number per
+// day (SMS pumping runs up the SMS bill once a real provider is wired) and a fresh set
+// of 5 guesses every minute. Cap sends per number per rolling 24h. Per-IP limiting
+// belongs at the hosting edge (every web request arrives via the BFF's single IP).
+const OTP_DAILY_LIMIT = 10;
 const OTP_MAX_ATTEMPTS = 5;
 
 export interface TokenPair {
@@ -68,11 +73,23 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async googleLogin(idToken: string): Promise<TokenPair> {
+    // Fail closed (security review 2026-09-26): with GOOGLE_CLIENT_ID unset, `audience`
+    // was undefined and google-auth-library then accepts an ID token minted for ANY
+    // Google OAuth client — any app's user token could create/sign in to a GHOR account.
+    // Comma-separated so the Android, iOS and web client IDs can all be listed.
+    const audience = (this.config.get<string>('GOOGLE_CLIENT_ID') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!audience.length) {
+      throw new ServiceUnavailableException('Google sign-in is not configured');
+    }
+
     let payload: { sub: string; name?: string } | undefined;
     try {
       const ticket = await this.googleClient.verifyIdToken({
         idToken,
-        audience: this.config.get<string>('GOOGLE_CLIENT_ID'),
+        audience,
       });
       payload = ticket.getPayload();
     } catch {
@@ -113,6 +130,18 @@ export class AuthService {
     ) {
       throw new BadRequestException(
         'Please wait before requesting another code',
+      );
+    }
+
+    const sentToday = await this.prisma.phoneOtp.count({
+      where: {
+        phone,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    });
+    if (sentToday >= OTP_DAILY_LIMIT) {
+      throw new BadRequestException(
+        'Too many codes requested for this number today. Try again tomorrow.',
       );
     }
 
