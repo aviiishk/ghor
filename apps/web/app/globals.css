@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  --background: #ffffff;
+  --background: #fbf8f3;
   --foreground: #0f172a;
 }
 
@@ -58,6 +58,18 @@ h4 {
   .glass-chip {
     @apply bg-white/85 backdrop-blur-sm text-ink;
   }
+  /* Redesign v2: the one surface treatment for product panels — white on cream with a
+     hairline, a modest radius, no floating shadow. Depth comes from imagery and type. */
+  .surface {
+    @apply rounded-2xl bg-white ring-1 ring-inset ring-navy/[0.07];
+  }
+  /* Horizontal rails: scroll with no visible scrollbar. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @keyframes ghor-shimmer {
@@ -80,71 +92,11 @@ h4 {
   color: #0f172a;
 }
 
-.container-page {
-  width: min(1180px, calc(100% - 32px));
-  margin-inline: auto;
-}
-
 @media (max-width: 767px) {
   html,
   body {
     overflow-x: hidden;
   }
-
-  .container-page {
-    width: 100%;
-    padding-inline: 1.5rem;
-  }
-}
-
-.blue-text-gradient {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 58%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.hero-curve {
-  background:
-    radial-gradient(circle at 18% 18%, rgba(37, 99, 235, 0.10), transparent 30%),
-    radial-gradient(circle at 74% 22%, rgba(96, 165, 250, 0.14), transparent 28%),
-    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-}
-
-@media (max-width: 767px) {
-  .hero-curve {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  }
-
-  .hero-curve::after {
-    display: none;
-  }
-}
-
-.hero-curve::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -115px;
-  width: min(980px, 88vw);
-  height: 230px;
-  transform: translateX(-50%);
-  border-radius: 999px 999px 0 0;
-  background: rgba(37, 99, 235, 0.055);
-  filter: blur(2px);
-}
-
-.glass-panel {
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(226, 232, 240, 0.86);
-  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.10);
-  backdrop-filter: blur(18px);
-}
-
-.city-silhouette {
-  background:
-    linear-gradient(to top, rgba(37, 99, 235, 0.15), transparent),
-    linear-gradient(90deg, transparent 0 5%, rgba(37, 99, 235, 0.12) 5% 10%, transparent 10% 16%, rgba(37, 99, 235, 0.14) 16% 24%, transparent 24% 30%, rgba(37, 99, 235, 0.11) 30% 34%, transparent 34% 42%, rgba(37, 99, 235, 0.18) 42% 52%, transparent 52% 60%, rgba(37, 99, 235, 0.12) 60% 67%, transparent 67% 74%, rgba(37, 99, 235, 0.15) 74% 81%, transparent 81% 88%, rgba(37, 99, 235, 0.11) 88% 94%, transparent 94%);
 }
 
 /* Legal pages (app/(legal)) — plain long-form text; no typography plugin installed. */
@@ -160,6 +112,66 @@ h4 {
 .ghor-pin { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; @apply bg-ink text-white text-xs font-bold rounded-full px-2.5 py-1 shadow-card cursor-pointer; }
 .ghor-pin--active { @apply bg-primary; }
 .ghor-pin:hover { @apply bg-primary; }
+
+/* Mobile bottom tab bar (components/TopNav.tsx) reserves space so fixed bars never cover
+   content; pages with their own fixed action bar hide the tab bar instead. */
+.pb-tabbar {
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+@media (min-width: 768px) {
+  .pb-tabbar {
+    padding-bottom: 0;
+  }
+}
+
+@keyframes ghor-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ghor-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes ghor-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ghor-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Visible, consistent keyboard focus everywhere (mouse clicks don't trigger it). */
+:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
 
 /* Landing locality marquee (sections/landing/Landing.tsx): the list is rendered twice,
    so translating by -50% loops seamlessly. */

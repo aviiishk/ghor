@@ -7,7 +7,9 @@ import { BadgeCheck, Camera, Check, ExternalLink, Inbox, MapPin, X } from 'lucid
 import { usePendingListings, useBulkSetListingStatus } from '@/features/admin/hooks';
 import type { Listing } from '@/features/listings/api';
 import { amenityIcon, amenityLabel } from '@/features/listings/amenities';
-import { EmptyState, Skeleton, formatRent } from '@/components/ui';
+import { EmptyState, Skeleton, buttonClass, formatRent } from '@/components/ui';
+import { Dialog, useToast } from '@/components/ui/overlay';
+import { friendlyError } from '@/lib/errors';
 
 function waitingFor(iso: string) {
   const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
@@ -98,14 +100,28 @@ function QueueCard({
 export default function AdminListingsQueuePage() {
   const { data: listings, isLoading, isError, refetch } = usePendingListings();
   const bulkSet = useBulkSetListingStatus();
+  const toast = useToast();
   const [selected, setSelected] = useState<string[]>([]);
+  // Rejecting is consequential (the owner is notified, the listing leaves the queue) and
+  // there's no undo — it always goes through a confirmation. Approving is one click.
+  const [confirmReject, setConfirmReject] = useState<string[] | null>(null);
 
   const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  async function handleBulk(status: 'approved' | 'rejected') {
-    if (!selected.length) return;
-    await bulkSet.mutateAsync({ ids: selected, status });
-    setSelected([]);
+  async function decide(ids: string[], status: 'approved' | 'rejected') {
+    if (!ids.length) return;
+    try {
+      await bulkSet.mutateAsync({ ids, status });
+      setSelected((prev) => prev.filter((id) => !ids.includes(id)));
+      const n = ids.length === 1 ? 'Listing' : `${ids.length} listings`;
+      toast(status === 'approved' ? `${n} approved — now live in Browse. The owner was notified.` : `${n} rejected. The owner was notified.`);
+    } catch (e: unknown) {
+      toast(friendlyError(e, 'That didn’t go through. Please try again.'), 'error');
+    } finally {
+      setConfirmReject(null);
+    }
   }
+  const rejectTitle = (ids: string[]) =>
+    ids.length === 1 ? listings?.find((l) => l.id === ids[0])?.title ?? 'this listing' : `${ids.length} listings`;
   const allSelected = !!listings?.length && selected.length === listings.length;
 
   return (
@@ -126,8 +142,8 @@ export default function AdminListingsQueuePage() {
         <div className="sticky top-20 z-30 mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-navy px-4 py-3 text-white shadow-sheet">
           <span className="text-sm font-semibold">{selected.length} selected</span>
           <div className="ml-auto flex gap-2">
-            <button onClick={() => handleBulk('approved')} disabled={bulkSet.isPending} className="press h-9 rounded-full bg-success px-4 text-sm font-bold text-navy disabled:opacity-60">Approve all</button>
-            <button onClick={() => handleBulk('rejected')} disabled={bulkSet.isPending} className="press h-9 rounded-full bg-white/10 px-4 text-sm font-bold text-white ring-1 ring-white/20 disabled:opacity-60">Reject all</button>
+            <button onClick={() => decide(selected, 'approved')} disabled={bulkSet.isPending} className="press h-9 rounded-full bg-success px-4 text-sm font-bold text-navy disabled:opacity-60">Approve all</button>
+            <button onClick={() => setConfirmReject(selected)} disabled={bulkSet.isPending} className="press h-9 rounded-full bg-white/10 px-4 text-sm font-bold text-white ring-1 ring-white/20 disabled:opacity-60">Reject all</button>
           </div>
         </div>
       )}
@@ -144,7 +160,7 @@ export default function AdminListingsQueuePage() {
               listing={l}
               selected={selected.includes(l.id)}
               onToggle={() => toggle(l.id)}
-              onDecide={(s) => bulkSet.mutate({ ids: [l.id], status: s })}
+              onDecide={(s) => (s === 'rejected' ? setConfirmReject([l.id]) : decide([l.id], 'approved'))}
               busy={bulkSet.isPending}
             />
           ))
@@ -152,6 +168,24 @@ export default function AdminListingsQueuePage() {
           <EmptyState icon={Inbox} title="Queue is clear" body="Nothing is waiting for review. New listings appear here as soon as owners submit them." />
         )}
       </div>
+
+      <Dialog
+        open={!!confirmReject}
+        onClose={() => setConfirmReject(null)}
+        dismissible={!bulkSet.isPending}
+        variant="modal"
+        size="sm"
+        title={`Reject ${confirmReject ? rejectTitle(confirmReject) : ''}?`}
+        description="The owner is notified and asked to fix the listing and resubmit it. It won’t appear in Browse."
+        footer={
+          <>
+            <button onClick={() => setConfirmReject(null)} disabled={bulkSet.isPending} className={buttonClass('ghost')}>Cancel</button>
+            <button onClick={() => confirmReject && decide(confirmReject, 'rejected')} disabled={bulkSet.isPending} className={buttonClass('destructive')}>
+              {bulkSet.isPending ? 'Rejecting…' : 'Reject'}
+            </button>
+          </>
+        }
+      />
     </div>
   );
 }

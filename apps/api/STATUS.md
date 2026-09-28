@@ -2,7 +2,38 @@
 
 > Ground truth for what's built vs. missing in the backend. This app is brand new (scaffolded 2026-07-23) — treat almost everything here as "not started" unless explicitly marked done.
 >
-> Last updated: 2026-09-27 — **security review fixes + small read-only additions for the redesign, all verified live.** Security: `JwtStrategy` returns the DB role (AdminGuard trusted a stale claim); Google `verifyIdToken` audience is required (comma-separated list supported) — 503 when unset; `CreateListingDto` limits (title 120, description 4000, locality 100 — trimmed, rent ≤ 1e7, ≤ 20 images/institutions) and `cloudinaryUrl` must match `https://res.cloudinary.com/<cloud>/image/upload/…`; `sendOtp` caps 10 codes/number/24h; `main.ts` refuses to start in production with JWT secrets < 32 chars, containing `change-me`, or equal to each other. Redesign support (additive, no contract changes): `GET /listings?q=` server-side search (title/locality/description) and `&locality=`; `GET /listings/localities` (real live-listing counts + min rent per area, powers Popular areas); conversations now include the listing cover image and an `unreadCount`, and opening a thread (first messages page) sets `readAt` on the other side's messages (unread state only — no read receipts). Also: `PrismaService` connect/pool timeouts + startup retries (added during the 2026-09-26 connectivity episode). Regression: 16/16 bug-fix checks + 6/6 security checks pass.
+> Last updated: 2026-09-28 — **Release-candidate pass (uncommitted).** Notification payloads (JSON, no schema change) now carry names so the web notification centre can say who and what:
+> - `new_message` adds `senderName` and `listingTitle`, still fire-and-forget.
+> - `listing_approved` and `listing_rejected` add `listingTitle`, so an owner with several listings can tell which one was reviewed.
+>
+> Older rows keep the old shape and the web falls back to generic copy. Tests after the change: bug-fix 16/16, security 6/6, photos 13/13, authz 27/27. Lint total 110, down from 112, and no new problems in edited lines.
+>
+> Previously: 2026-09-28 — **Pre-commit security review (uncommitted, feature/web-redesign-v2).**
+>
+> Upload signatures are hardened:
+> - Each signature pins a single-use `public_id` chosen by the server (`ghor/listings/<uuid>`) with `overwrite=false`. A signature can't be reused to store unlimited files or to replace a photo on an approved listing.
+> - An incoming `c_limit,h_2000,w_2000` transformation caps stored photos at 2000px on the long edge.
+> - `allowed_formats` is limited to image formats.
+> - Each user can mint 120 signatures per hour (429 beyond that). The limit is kept in memory, so it only holds with a single API instance.
+>
+> **Blocking issue fixed:** listing photo URLs were accepted from *any* Cloudinary account, so an owner could get a listing approved and then change the image behind that URL. `cloudinaryUrl` must now be `https://res.cloudinary.com/<CLOUDINARY_CLOUD_NAME>/image/upload/…/ghor/…` (`IsOwnCloudinaryImage`).
+>
+> Tests:
+> - authz.js 27/27: ownership, status transitions, admin endpoints against non-admins, role escalation, chat privacy and sender spoofing, notifications, reports, signature auth, other-cloud URLs, and no phone number on public profiles.
+> - photos 13/13, bug-fix 16/16, security 6/6.
+> - This branch adds no new lint problems.
+>
+> Tech debt (not fixed):
+> - **Orphaned Cloudinary photos** (removed from a listing, or uploaded and never saved) are never deleted. The fix is a reconcile job that only destroys `ghor/listings/*` assets older than a day that no `listing_images` row references.
+> - The dev-only OTP log line (`logger.warn` when `SMS_API_URL` is unset) must never run in production.
+> - `geocode-preview` has no per-user rate limit.
+> - `resource_type` in the upload URL can't be signed, so raw (non-image) uploads are possible. They are bounded by `allowed_formats` and the rate limit, and are never accepted as listing photos.
+>
+> Previously: 2026-09-28 — **Signed Cloudinary uploads + photo editing (uncommitted, feature/web-redesign-v2).** New `uploads` module: `POST /uploads/signature` (JWT) returns a one-hour signature pinned to folder `ghor/listings` and image formats, minted from `CLOUDINARY_*` in `.env`; the secret never leaves the server, and no unsigned upload preset is needed (the preset the web env named never existed on the account — root cause of "Image upload failed"). 503 when credentials are missing. `PATCH /listings/:id` now accepts `images` (complete ordered list, replace-all, same URL/size validation as create); photo changes count as a content change, so a live listing goes back to review; publishing counts photos sent in the same request. Tests: new photos.js 12/12 (auth, signature validity, no secret in response, publish rules, re-review, ownership, URL/size limits), bug-fix 16/16, security 6/6.
+>
+> Previously: 2026-09-27 — **Additive, read-only: `GET /listings/geocode-preview?locality=`** (JWT-guarded) returns `{ point: { latitude, longitude } | null }` from the same `GeocodingService` (cache + 1 req/s queue) that create/update uses, so the web create-listing flow can preview the approximate area. No schema or contract changes. Regression: 16/16 bug-fix + 6/6 security checks still pass.
+>
+> Previously: 2026-09-27 — **security review fixes + small read-only additions for the redesign, all verified live.** Security: `JwtStrategy` returns the DB role (AdminGuard trusted a stale claim); Google `verifyIdToken` audience is required (comma-separated list supported) — 503 when unset; `CreateListingDto` limits (title 120, description 4000, locality 100 — trimmed, rent ≤ 1e7, ≤ 20 images/institutions) and `cloudinaryUrl` must match `https://res.cloudinary.com/<cloud>/image/upload/…`; `sendOtp` caps 10 codes/number/24h; `main.ts` refuses to start in production with JWT secrets < 32 chars, containing `change-me`, or equal to each other. Redesign support (additive, no contract changes): `GET /listings?q=` server-side search (title/locality/description) and `&locality=`; `GET /listings/localities` (real live-listing counts + min rent per area, powers Popular areas); conversations now include the listing cover image and an `unreadCount`, and opening a thread (first messages page) sets `readAt` on the other side's messages (unread state only — no read receipts). Also: `PrismaService` connect/pool timeouts + startup retries (added during the 2026-09-26 connectivity episode). Regression: 16/16 bug-fix checks + 6/6 security checks pass.
 >
 > Previously: 2026-09-26 (latest) — **11 code-review bugs fixed and verified live (2026-09-26)**: (1) editing content of an approved/rented listing sends it back to `pending` (no-op edits don't); (2) one open report per person per listing (409) and the auto-revert threshold counts distinct reporters; reports only on live listings; (3) new conversations only on approved listings (existing threads stay reachable); (4) Socket.io re-checks token expiry + banned/deleted on every event and disconnects; (5) socket messages capped at 4000 chars like REST; (6) owners can resubmit rejected listings; (7) a device push token belongs to one user (new sign-in takes it over) + `DELETE /push-tokens` on sign-out; (8) refresh-token rotation is atomic — 5 parallel refreshes → exactly 1 succeeds; (9) apps/web BFF de-duplicates concurrent refreshes (`lib/session.ts`) — 5 parallel expired-session requests → all 200, one shared new session, no cookie wipe; (10) OTP attempts claimed atomically before compare — 12 parallel wrong guesses → attempts capped at 5, correct code then refused; (11) production without `SMS_API_URL` → 503 and no OTP in logs. Regression script: 16/16 + 2 extra checks passed.
 >

@@ -15,6 +15,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { OwnersModule } from './owners/owners.module';
 import { EventsModule } from './events/events.module';
 import { AppConfigModule } from './app-config/app-config.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AppConfigModule } from './app-config/app-config.module';
     OwnersModule,
     EventsModule,
     AppConfigModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
 })

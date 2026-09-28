@@ -1,12 +1,12 @@
-import { PartialType, OmitType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/mapped-types';
 import { IsIn, IsOptional } from 'class-validator';
 import { CreateListingDto } from './create-listing.dto';
 
-// `images` isn't editable through this endpoint — see CreateListingDto's comment.
-// Content fields are all optional here (a PATCH, not a full replace).
-export class UpdateListingDto extends PartialType(
-  OmitType(CreateListingDto, ['images'] as const),
-) {
+// Content fields are all optional here (a PATCH). `images`, when present, is the complete
+// ordered photo list and REPLACES the listing's photos (position = array order) — that's
+// how an owner adds, removes, reorders or re-covers photos from the Edit page
+// (2026-09-27). Omit it to leave photos untouched.
+export class UpdateListingDto extends PartialType(CreateListingDto) {
   // Deliberately NOT the full ListingStatus enum — `approved`/`rejected` and
   // `propertyVerified` are admin-only and not exposed here at all (root CLAUDE.md §6).
   // The two non-admin transitions this DTO allows — draft->pending (publish) and

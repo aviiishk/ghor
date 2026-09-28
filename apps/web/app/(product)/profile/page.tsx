@@ -1,43 +1,67 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { BadgeCheck, Bell, ChevronRight, Eye, FileText, LayoutList, LogOut, MessageCircle, Pencil, Phone, Trash2 } from 'lucide-react';
-import { Avatar, Badge, IconTile, Skeleton } from '@/components/ui';
+import {
+  BadgeCheck,
+  Bell,
+  ChevronRight,
+  FileText,
+  LayoutList,
+  LogOut,
+  MessageCircle,
+  Pencil,
+  Plus,
+  Search,
+  ShieldCheck,
+} from 'lucide-react';
+import { Avatar, Skeleton, buttonClass, cx, inputBase } from '@/components/ui';
+import { useToast } from '@/components/ui/overlay';
 import { useProfile, useUpdateProfile } from '@/features/auth/hooks';
 import { deleteAccount, signOut } from '@/features/auth/api';
 import { DeleteAccountDialog } from '@/features/auth/components/DeleteAccountDialog';
 import { useNotifications } from '@/features/notifications/hooks';
+import { useConversations } from '@/features/chat/hooks';
+import { useMyListings } from '@/features/listings/hooks';
+import { friendlyError } from '@/lib/errors';
 
-// Same scope as apps/mobile's Profile screen: identity display (name editable), the
-// Notifications entry point, legal links, sign out, and account deletion (Play Store
-// requirement, root CLAUDE.md §15.4). Phone number editing is still not built — it needs
-// OTP re-verification of the new number, a separate flow.
+// Account page, polish pass (2026-09-27). A restrained identity header (who you are on
+// GHOR and what's verified), then quiet grouped lists — no card per row, no competing
+// colour blocks. Destructive actions sit at the bottom and look secondary. Same scope as
+// before: name editing, notifications, legal, sign out, account deletion (Play Store
+// requirement, root CLAUDE.md §15.4). Phone editing needs its own OTP re-verification
+// flow and isn't built.
 export default function ProfilePage() {
-  const router = useRouter();
   const qc = useQueryClient();
+  const toast = useToast();
   const { data: profile, isLoading } = useProfile();
   const { data: notifications } = useNotifications();
+  const { data: conversations } = useConversations();
+  const isOwner = profile?.role === 'owner';
+  const { data: myListings } = useMyListings();
   const updateProfile = useUpdateProfile();
-  const unreadCount = notifications?.filter((n) => !n.readAt).length ?? 0;
+  const unreadNotifications = notifications?.filter((n) => !n.readAt).length ?? 0;
+  const unreadChats = conversations?.reduce((n, c) => n + (c.unreadCount ?? 0), 0) ?? 0;
 
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   async function handleSignOut() {
+    setSigningOut(true);
     await signOut();
     qc.clear();
-    router.replace('/sign-in');
+    // Full load so no signed-in prefetch or cached page survives the sign-out.
+    window.location.replace('/sign-in');
   }
 
   async function handleDeleteAccount() {
     await deleteAccount();
     qc.clear();
-    router.replace('/sign-in');
+    window.location.replace('/sign-in');
   }
 
   function startEditName() {
@@ -48,135 +72,210 @@ export default function ProfilePage() {
 
   async function saveName() {
     const fullName = nameDraft.trim();
-    if (!fullName) {
-      setNameError('Name can’t be empty.');
+    if (fullName.length < 2) {
+      setNameError('Enter your name as renters and owners should see it (at least 2 letters).');
       return;
     }
     try {
       await updateProfile.mutateAsync({ fullName });
       setEditingName(false);
+      toast('Name updated');
     } catch (e: unknown) {
-      setNameError(e instanceof Error ? e.message : 'Something went wrong');
+      setNameError(friendlyError(e, 'We couldn’t save your name. Please try again.'));
     }
   }
 
   if (isLoading || !profile) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4 px-4 pt-8 sm:px-6" aria-busy="true">
-        <Skeleton className="h-40 rounded-3xl" />
-        <Skeleton className="h-64 rounded-3xl" />
+      <div className="mx-auto max-w-3xl px-4 pt-10 sm:px-6" aria-busy="true">
+        <div className="flex items-center gap-5">
+          <Skeleton className="h-20 w-20 rounded-full" />
+          <div className="flex-1 space-y-2.5">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+        <Skeleton className="mt-10 h-56 rounded-2xl" />
+        <Skeleton className="mt-6 h-40 rounded-2xl" />
       </div>
     );
   }
 
-  const isOwner = profile.role === 'owner';
-  const row = 'press flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-cream';
+  const roleLabel = profile.role === 'seeker' ? 'Renter' : profile.role === 'owner' ? 'Property owner' : 'Admin';
+  const memberSince = new Date(profile.createdAt).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const live = myListings?.filter((l) => l.status === 'approved').length ?? 0;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-20 pt-8 sm:px-6">
-      {/* Identity */}
-      <section className="relative overflow-hidden rounded-3xl bg-navy p-6 text-white sm:p-8">
-        <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/40 blur-3xl" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
-          <span className="rounded-full ring-4 ring-white/15"><Avatar name={profile.fullName} size="xl" /></span>
-          <div className="min-w-0 flex-1">
-            {editingName ? (
-              <div>
-                <div className="flex gap-2">
-                  <input
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveName();
-                      if (e.key === 'Escape') setEditingName(false);
-                    }}
-                    maxLength={80}
-                    autoFocus
-                    aria-label="Full name"
-                    className="min-w-0 flex-1 rounded-xl bg-white px-3 py-2 text-ink outline-none"
-                  />
-                  <button onClick={saveName} disabled={updateProfile.isPending} className="press rounded-full bg-primary px-4 font-bold text-white disabled:opacity-70">Save</button>
-                  <button onClick={() => setEditingName(false)} className="px-2 font-semibold text-white/70">Cancel</button>
-                </div>
-                {nameError && <p className="mt-1 text-sm text-red-200">{nameError}</p>}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <h1 className="truncate font-display text-2xl font-bold tracking-tight sm:text-3xl">{profile.fullName ?? 'Unnamed'}</h1>
-                <button onClick={startEditName} aria-label="Edit name" className="rounded-full p-1.5 text-white/70 hover:bg-white/10 hover:text-white">
-                  <Pencil size={16} />
+    <div className="mx-auto max-w-3xl px-4 pb-20 pt-8 sm:px-6 sm:pt-12">
+      {/* ------------------------------------------------ Identity */}
+      <header className="flex flex-col gap-5 sm:flex-row sm:items-center">
+        <Avatar name={profile.fullName} size="xl" />
+        <div className="min-w-0 flex-1">
+          {editingName ? (
+            <div className="max-w-md">
+              <label htmlFor="full-name" className="text-sm font-semibold text-navy">
+                Your name
+              </label>
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  id="full-name"
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveName();
+                    if (e.key === 'Escape') setEditingName(false);
+                  }}
+                  maxLength={80}
+                  autoFocus
+                  aria-invalid={!!nameError}
+                  aria-describedby={nameError ? 'name-error' : undefined}
+                  className={cx(inputBase, 'h-11', nameError && 'ring-2 ring-destructive')}
+                />
+                <button onClick={saveName} disabled={updateProfile.isPending} className={buttonClass('navy')}>
+                  {updateProfile.isPending ? 'Saving…' : 'Save'}
+                </button>
+                <button onClick={() => setEditingName(false)} className={buttonClass('ghost')}>
+                  Cancel
                 </button>
               </div>
-            )}
-            <p className="mt-1 flex items-center gap-1.5 text-white/70"><Phone size={14} aria-hidden /> {profile.phone ?? 'No phone on file'}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold capitalize">{profile.role === 'seeker' ? 'Renter' : profile.role}</span>
-              {profile.phoneVerified && <Badge tone="success" icon={BadgeCheck}>Phone verified</Badge>}
+              {nameError && (
+                <p id="name-error" className="mt-1.5 text-sm text-destructive-pressed">
+                  {nameError}
+                </p>
+              )}
             </div>
+          ) : (
+            <h1 className="font-display text-[2rem] font-bold leading-tight tracking-[-0.03em] text-navy sm:text-[2.4rem]">
+              {profile.fullName ?? 'Add your name'}
+            </h1>
+          )}
+          <p className="mt-1 text-[15px] text-muted">
+            {roleLabel} · on GHOR since {memberSince}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {profile.phoneVerified ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-success-pale px-2.5 py-1 text-xs font-bold text-success-deep">
+                <BadgeCheck size={13} aria-hidden /> Phone verified
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-cream-deep px-2.5 py-1 text-xs font-semibold text-muted">Phone not verified</span>
+            )}
+            {profile.idVerificationStatus === 'verified' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-success-pale px-2.5 py-1 text-xs font-bold text-success-deep">
+                <ShieldCheck size={13} aria-hidden /> ID verified
+              </span>
+            )}
           </div>
         </div>
-      </section>
-
-      {/* Account */}
-      <h2 className="mb-2 mt-8 px-1 text-xs font-bold uppercase tracking-wider text-muted">Account</h2>
-      <div className="divide-y divide-hairline-soft overflow-hidden rounded-3xl bg-white ring-1 ring-navy/[0.06]">
-        <button onClick={() => router.push('/notifications')} className={row}>
-          <IconTile icon={Bell} size="sm" />
-          <span className="flex-1 font-semibold text-ink">Notifications</span>
-          {unreadCount > 0 && <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-white">{unreadCount}</span>}
-          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
-        </button>
-        <Link href="/chats" className={row}>
-          <IconTile icon={MessageCircle} size="sm" />
-          <span className="flex-1 font-semibold text-ink">Chats</span>
-          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
-        </Link>
         {isOwner && (
-          <>
-            <Link href="/my-listings" className={row}>
-              <IconTile icon={LayoutList} size="sm" />
-              <span className="flex-1 font-semibold text-ink">My listings</span>
-              <ChevronRight size={18} className="text-muted-soft" aria-hidden />
-            </Link>
-            <Link href={`/owner/${profile.id}`} className={row}>
-              <IconTile icon={Eye} size="sm" />
-              <span className="flex-1">
-                <span className="block font-semibold text-ink">View my public profile</span>
-                <span className="block text-xs text-muted">What renters see when they tap your name</span>
-              </span>
-              <ChevronRight size={18} className="text-muted-soft" aria-hidden />
-            </Link>
-          </>
+          <Link href={`/owner/${profile.id}`} className={cx(buttonClass('secondary', 'sm'), 'self-start sm:self-center')}>
+            View public profile
+          </Link>
         )}
-      </div>
+      </header>
 
-      {/* Legal */}
-      <h2 className="mb-2 mt-8 px-1 text-xs font-bold uppercase tracking-wider text-muted">About</h2>
-      <div className="divide-y divide-hairline-soft overflow-hidden rounded-3xl bg-white ring-1 ring-navy/[0.06]">
-        <Link href="/privacy" className={row}>
-          <IconTile icon={FileText} size="sm" tone="cream" />
-          <span className="flex-1 font-semibold text-ink">Privacy Policy</span>
-          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
-        </Link>
-        <Link href="/terms" className={row}>
-          <IconTile icon={FileText} size="sm" tone="cream" />
-          <span className="flex-1 font-semibold text-ink">Terms of Service</span>
-          <ChevronRight size={18} className="text-muted-soft" aria-hidden />
-        </Link>
-      </div>
+      {isOwner && myListings && (
+        <dl className="mt-8 grid grid-cols-3 divide-x divide-navy/[0.08] border-y border-navy/[0.08] py-4 text-center">
+          {[
+            [myListings.length, myListings.length === 1 ? 'Listing' : 'Listings'],
+            [live, 'Live now'],
+            [conversations?.length ?? 0, (conversations?.length ?? 0) === 1 ? 'Conversation' : 'Conversations'],
+          ].map(([n, label]) => (
+            <div key={String(label)}>
+              <dd className="font-display text-2xl font-bold text-navy">{n}</dd>
+              <dt className="text-xs font-semibold text-muted">{label}</dt>
+            </div>
+          ))}
+        </dl>
+      )}
 
-      <div className="mt-8 overflow-hidden rounded-3xl bg-white ring-1 ring-navy/[0.06]">
-        <button onClick={handleSignOut} className={row}>
-          <IconTile icon={LogOut} size="sm" tone="danger" />
-          <span className="flex-1 font-semibold text-destructive-pressed">Sign out</span>
+      {/* ------------------------------------------------ Activity */}
+      <Group title="Activity">
+        <Row href="/chats" icon={MessageCircle} label="Chats" meta={unreadChats ? plural(unreadChats, 'unread message', 'unread messages') : 'Conversations with owners and renters'} badge={unreadChats} />
+        <Row href="/notifications" icon={Bell} label="Notifications" meta={unreadNotifications ? `${unreadNotifications} unread` : 'Messages, reviews and listing updates'} badge={unreadNotifications} />
+        {isOwner ? (
+          <>
+            <Row href="/my-listings" icon={LayoutList} label="My listings" meta={myListings ? `${plural(myListings.length, 'listing', 'listings')} · ${live} live` : 'Manage your rooms and flats'} />
+            <Row href="/listing/new" icon={Plus} label="List a property" meta="Add a room or flat in about three minutes" />
+          </>
+        ) : (
+          <Row href="/browse" icon={Search} label="Find a home" meta="Rooms and flats across Guwahati" />
+        )}
+      </Group>
+
+      {/* ------------------------------------------------ Account */}
+      <Group title="Account">
+        <Item label="Name" value={profile.fullName ?? 'Not set'} action={!editingName && <button onClick={startEditName} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-bold text-primary hover:bg-primary-light"><Pencil size={14} aria-hidden /> Edit</button>} />
+        <Item
+          label="Phone number"
+          value={profile.phone ? formatPhone(profile.phone) : 'Not set'}
+          hint={isOwner ? 'Used to sign in, and shown on your listings so renters can call you.' : 'Used to sign in.'}
+        />
+        <Item label="Account type" value={roleLabel} />
+      </Group>
+
+      <Group title="Legal">
+        <Row href="/privacy" icon={FileText} label="Privacy Policy" />
+        <Row href="/terms" icon={FileText} label="Terms of Service" />
+      </Group>
+
+      <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-navy/[0.08] pt-8">
+        <button onClick={handleSignOut} disabled={signingOut} className={buttonClass('secondary')}>
+          <LogOut size={17} aria-hidden /> {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+        <button onClick={() => setDeleteOpen(true)} className="rounded-lg px-2 py-1 text-sm font-semibold text-muted underline-offset-4 hover:text-destructive-pressed hover:underline">
+          Delete account
         </button>
       </div>
-
-      <button onClick={() => setDeleteOpen(true)} className="mt-6 inline-flex items-center gap-2 px-2 text-sm font-semibold text-muted hover:text-destructive">
-        <Trash2 size={16} aria-hidden /> Delete account
-      </button>
 
       <DeleteAccountDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={handleDeleteAccount} />
     </div>
   );
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-10">
+      <h2 className="mb-3 font-display text-lg font-bold text-navy">{title}</h2>
+      <div className="divide-y divide-navy/[0.07] overflow-hidden rounded-2xl bg-white ring-1 ring-inset ring-navy/[0.08]">{children}</div>
+    </section>
+  );
+}
+
+function Row({ href, icon: Icon, label, meta, badge = 0 }: { href: string; icon: typeof Bell; label: string; meta?: string; badge?: number }) {
+  return (
+    <Link href={href} className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-cream">
+      <Icon size={20} className="shrink-0 text-navy/70" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold text-ink">{label}</span>
+        {meta && <span className="block truncate text-sm text-muted">{meta}</span>}
+      </span>
+      {badge > 0 && (
+        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-white">
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+      <ChevronRight size={18} className="shrink-0 text-muted-soft transition-transform group-hover:translate-x-0.5" aria-hidden />
+    </Link>
+  );
+}
+
+function Item({ label, value, hint, action }: { label: string; value: string; hint?: string; action?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-4 px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-muted">{label}</p>
+        <p className="font-semibold text-ink">{value}</p>
+        {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+// +919876543210 -> +91 98765 43210 (how Indian numbers are written); anything else as-is.
+function formatPhone(phone: string) {
+  const m = /^\+91(\d{5})(\d{5})$/.exec(phone);
+  return m ? `+91 ${m[1]} ${m[2]}` : phone;
 }

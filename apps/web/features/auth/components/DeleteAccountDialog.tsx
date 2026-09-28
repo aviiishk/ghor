@@ -1,6 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
+import { Dialog } from '@/components/ui/overlay';
+import { buttonClass, cx, inputBase } from '@/components/ui';
+import { friendlyError } from '@/lib/errors';
 
 const CONFIRM_WORD = 'DELETE';
 
@@ -20,15 +24,13 @@ export function DeleteAccountDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!open) return null;
-
   async function handleConfirm() {
     setError(null);
     setPending(true);
     try {
       await onConfirm();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      setError(friendlyError(e, 'We couldn’t delete your account. Nothing was removed — please try again.'));
       setPending(false);
     }
   }
@@ -40,51 +42,53 @@ export function DeleteAccountDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-        <h2 className="text-lg font-bold text-ink mb-1">Delete your account?</h2>
-        <p className="text-muted text-sm mb-3">This can&rsquo;t be undone. It permanently deletes:</p>
-        <ul className="text-sm text-ink list-disc pl-5 mb-4 space-y-1">
-          <li>your profile and login</li>
-          <li>all your listings and their photos</li>
-          <li>all your conversations and messages</li>
-          <li>your reviews, reports and notifications</li>
-        </ul>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      dismissible={!pending}
+      title="Delete your account?"
+      description="This can’t be undone. It permanently deletes:"
+      footer={
+        <>
+          <button type="button" onClick={handleClose} disabled={pending} className={buttonClass('ghost')}>
+            Keep my account
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={typed.trim() !== CONFIRM_WORD || pending}
+            className={buttonClass('destructive')}
+          >
+            {pending ? 'Deleting…' : 'Delete permanently'}
+          </button>
+        </>
+      }
+    >
+      <ul className="list-disc space-y-1.5 pl-5 text-[15px] text-body">
+        <li>your profile and sign-in</li>
+        <li>all your listings and their photos</li>
+        <li>all your conversations and messages</li>
+        <li>your reviews, reports and notifications</li>
+      </ul>
 
-        {error && (
-          <div className="bg-destructive-pale text-destructive-pressed rounded-xl px-3 py-2 mb-4 text-sm">
-            {error}
-          </div>
-        )}
+      {error && (
+        <p role="alert" className="mt-4 flex items-start gap-2 rounded-xl bg-destructive-pale px-3 py-2.5 text-sm text-destructive-pressed">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden /> {error}
+        </p>
+      )}
 
-        <label htmlFor="confirm-delete" className="block text-sm font-semibold text-ink mb-2">
-          Type {CONFIRM_WORD} to confirm
-        </label>
-        <input
-          id="confirm-delete"
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          autoComplete="off"
-          className="w-full border border-hairline rounded-2xl px-4 py-3 text-ink mb-4"
-        />
-
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={typed.trim() !== CONFIRM_WORD || pending}
-          className="w-full bg-destructive text-white font-semibold rounded-full py-3.5 mb-2 disabled:opacity-50"
-        >
-          {pending ? 'Deleting…' : 'Delete account permanently'}
-        </button>
-        <button
-          type="button"
-          onClick={handleClose}
-          disabled={pending}
-          className="w-full text-muted font-semibold py-2.5"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
+      <label htmlFor="confirm-delete" className="mt-5 block text-sm font-semibold text-navy">
+        Type {CONFIRM_WORD} to confirm
+      </label>
+      <input
+        id="confirm-delete"
+        data-autofocus
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        autoComplete="off"
+        autoCapitalize="characters"
+        className={cx(inputBase, 'mt-2 h-12')}
+      />
+    </Dialog>
   );
 }

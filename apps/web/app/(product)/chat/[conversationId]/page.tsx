@@ -4,14 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, BadgeCheck, MessageCircle, SendHorizontal } from 'lucide-react';
-import { Avatar, Skeleton, formatRent } from '@/components/ui';
+import { ArrowLeft, BadgeCheck, ExternalLink, MapPin, MessageCircle, SendHorizontal } from 'lucide-react';
+import { Avatar, Skeleton, buttonClass, formatRent } from '@/components/ui';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import type { Socket } from 'socket.io-client';
 import { useConversations, useMessages, chatKeys } from '@/features/chat/hooks';
 import { sendMessageRest, type Conversation, type Message } from '@/features/chat/api';
 import { connectSocket, disconnectSocket } from '@/lib/socket';
 import { QuickReplies } from '@/features/chat/components/QuickReplies';
+import { ConversationList } from '@/features/chat/components/ConversationList';
 import { useProfile } from '@/features/auth/hooks';
 
 type MessagesPage = { items: Message[]; nextCursor: string | null };
@@ -39,7 +40,7 @@ export default function ChatPage() {
   const router = useRouter();
   const { data: profile } = useProfile();
   const { data: conversations } = useConversations();
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMessages(conversationId);
 
   const [text, setText] = useState('');
@@ -147,117 +148,153 @@ export default function ChatPage() {
   const cover = conversation?.listing.images?.[0]?.cloudinaryUrl;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col px-0 sm:px-6" style={{ height: 'calc(100dvh - 64px)' }}>
-      {/* Header: who you're talking to + which listing it's about */}
-      <div className="flex items-center gap-3 border-b border-navy/[0.06] bg-white px-4 py-3 sm:mt-4 sm:rounded-t-3xl sm:px-5">
-        <button onClick={() => router.push('/chats')} aria-label="Back to chats" className="-ml-1 rounded-full p-2 text-body hover:bg-surface">
-          <ArrowLeft size={20} />
-        </button>
-        {other ? <Avatar name={other.fullName} size="md" /> : <Skeleton className="h-11 w-11 rounded-full" />}
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5 truncate font-display font-bold text-ink">
-            {other?.fullName ?? 'Chat'}
-            {other?.phoneVerified && <BadgeCheck size={16} className="shrink-0 text-success-deep" aria-label="Phone verified" />}
-          </p>
-          <p className="truncate text-xs text-muted">{isSeeker ? 'Owner' : 'Interested renter'}</p>
-        </div>
-        {conversation && (
-          <Link href={`/listing/${conversation.listing.id}`} className="press hidden max-w-[260px] items-center gap-3 rounded-2xl bg-cream p-2 pr-4 ring-1 ring-navy/[0.06] sm:flex">
-            <span className="relative h-11 w-14 shrink-0 overflow-hidden rounded-xl bg-surface-sunken">
-              {cover && <Image src={cover} alt="" fill sizes="56px" className="object-cover" />}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-bold text-ink">{conversation.listing.title}</span>
-              <span className="block text-xs text-muted">{formatRent(conversation.listing.rent)}/mo · {conversation.listing.locality}</span>
-            </span>
-          </Link>
-        )}
-      </div>
-      {conversation && (
-        <Link href={`/listing/${conversation.listing.id}`} className="flex items-center gap-3 border-b border-navy/[0.06] bg-cream px-4 py-2.5 sm:hidden">
-          <span className="relative h-9 w-12 shrink-0 overflow-hidden rounded-lg bg-surface-sunken">
-            {cover && <Image src={cover} alt="" fill sizes="48px" className="object-cover" />}
-          </span>
-          <span className="min-w-0 truncate text-sm">
-            <strong className="text-ink">{conversation.listing.title}</strong>{' '}
-            <span className="text-muted">· {formatRent(conversation.listing.rent)}/mo</span>
-          </span>
-        </Link>
-      )}
+    <div className="mx-auto max-w-7xl lg:px-8 lg:pb-6 lg:pt-6">
+      <div className="grid grid-cols-1 h-[calc(100dvh-64px)] overflow-hidden bg-white lg:h-[calc(100dvh-64px-3rem)] lg:grid-cols-[360px_minmax(0,1fr)] lg:rounded-2xl lg:ring-1 lg:ring-inset lg:ring-navy/[0.08]">
+        {/* Desktop sidebar: all conversations */}
+        <aside className="hidden min-h-0 flex-col border-r border-navy/[0.08] lg:flex">
+          <div className="flex items-center justify-between px-5 pb-3 pt-5">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-navy">Chats</h1>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ConversationList
+              conversations={conversations}
+              isLoading={!conversations}
+              isError={false}
+              onRetry={() => undefined}
+              myId={profile?.id}
+              activeId={conversationId}
+            />
+          </div>
+        </aside>
 
-      {/* Thread */}
-      <div className="flex flex-1 flex-col-reverse overflow-y-auto bg-white px-4 sm:px-5">
-        <div ref={bottomRef} />
-        <div className="flex flex-col py-4">
-          {isLoading ? (
-            <div className="space-y-3" aria-busy="true">
-              <Skeleton className="h-10 w-2/3 rounded-2xl" />
-              <Skeleton className="ml-auto h-10 w-1/2 rounded-2xl" />
-              <Skeleton className="h-10 w-3/5 rounded-2xl" />
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center py-12 text-center">
-              <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-light text-primary">
-                <MessageCircle size={26} aria-hidden />
-              </span>
-              <p className="mt-4 font-display text-lg font-bold text-ink">Start the conversation</p>
-              <p className="mt-1 max-w-xs text-sm text-muted">
-                Ask about availability, visiting times or the deposit. Tap a suggestion below to begin.
+        <section className="flex min-h-0 flex-col">
+          {/* Header: who you're talking to */}
+          <div className="flex items-center gap-3 border-b border-navy/[0.08] bg-white px-3 py-3 sm:px-5">
+            <button onClick={() => router.push('/chats')} aria-label="Back to chats" className="rounded-full p-2 text-navy hover:bg-cream lg:hidden">
+              <ArrowLeft size={20} />
+            </button>
+            {other ? <Avatar name={other.fullName} size="md" /> : <Skeleton className="h-11 w-11 rounded-full" />}
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 truncate font-display text-[17px] font-bold text-navy">
+                {other?.fullName ?? 'Chat'}
+                {other?.phoneVerified && <BadgeCheck size={16} className="shrink-0 text-success-deep" aria-label="Phone verified" />}
               </p>
+              {conversation && <p className="truncate text-xs text-muted">{isSeeker ? 'Owner' : 'Interested renter'}</p>}
             </div>
-          ) : (
-            <>
-              {hasNextPage && (
-                <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage} className="mb-3 self-center rounded-full bg-surface px-4 py-1.5 text-xs font-semibold text-muted">
-                  {isFetchingNextPage ? 'Loading…' : 'Load earlier messages'}
-                </button>
-              )}
-              {messages.map((message, i) => {
-                const prev = messages[i - 1];
-                const nextMsg = messages[i + 1];
-                const newDay = !prev || dayKey(prev.createdAt) !== dayKey(message.createdAt);
-                const lastInGroup =
-                  !nextMsg || nextMsg.senderId !== message.senderId || dayKey(nextMsg.createdAt) !== dayKey(message.createdAt);
-                return (
-                  <div key={message.id} className="flex flex-col">
-                    {newDay && <DaySeparator iso={message.createdAt} />}
-                    <MessageBubble message={message} isMine={message.senderId === profile?.id} lastInGroup={lastInGroup} />
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </div>
-      </div>
+            {conversation && (
+              <Link href={`/listing/${conversation.listing.id}`} className="hidden items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-navy underline-offset-4 hover:underline sm:inline-flex">
+                View listing <ExternalLink size={14} aria-hidden />
+              </Link>
+            )}
+          </div>
 
-      {/* Composer */}
-      <div className="border-t border-navy/[0.06] bg-white px-4 pb-4 pt-2 sm:mb-4 sm:rounded-b-3xl sm:px-5">
-        <QuickReplies onSelect={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))} />
-        <div className="mt-2 flex items-end gap-2 rounded-3xl bg-surface p-1.5 pl-4 ring-1 ring-hairline focus-within:ring-2 focus-within:ring-primary">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="Write a message…"
-            aria-label="Message"
-            rows={1}
-            maxLength={4000}
-            className="max-h-32 flex-1 resize-none bg-transparent py-2 text-ink outline-none placeholder:text-muted-soft"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!text.trim() || sending}
-            aria-label="Send message"
-            className="press inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white transition disabled:bg-primary-disabled"
-          >
-            <SendHorizontal size={18} />
-          </button>
-        </div>
+          {/* Listing context — always visible, so the chat is about a specific home */}
+          {conversation && (
+            <Link href={`/listing/${conversation.listing.id}`} className="group flex items-center gap-3 border-b border-navy/[0.08] bg-cream px-4 py-3 sm:px-5">
+              <span className="relative h-12 w-16 shrink-0 overflow-hidden rounded-lg bg-cream-deep">
+                {cover && <Image src={cover} alt="" fill sizes="64px" className="object-cover" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-ink group-hover:underline">{conversation.listing.title}</span>
+                <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted">
+                  <MapPin size={12} className="text-primary" aria-hidden /> {conversation.listing.locality}
+                </span>
+              </span>
+              <span className="shrink-0 font-display text-lg font-bold text-navy">
+                {formatRent(conversation.listing.rent)}
+                <span className="text-xs font-medium text-muted">/mo</span>
+              </span>
+            </Link>
+          )}
+
+          {/* Thread */}
+          <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto bg-[#FCFAF6] px-4 sm:px-6">
+            <div ref={bottomRef} />
+            <div className="mx-auto flex w-full max-w-3xl flex-col py-5">
+              {isLoading ? (
+                <div className="space-y-3" aria-busy="true">
+                  <Skeleton className="h-10 w-2/3 rounded-2xl" />
+                  <Skeleton className="ml-auto h-10 w-1/2 rounded-2xl" />
+                  <Skeleton className="h-10 w-3/5 rounded-2xl" />
+                </div>
+              ) : isError ? (
+                <div className="flex flex-col items-center py-14 text-center">
+                  <p className="font-display text-xl font-bold text-navy">This conversation isn’t available</p>
+                  <p className="mt-1.5 max-w-sm text-sm text-muted">It may have been deleted, or the link is for someone else’s chat. If it’s yours, check your connection and try again.</p>
+                  <div className="mt-5 flex gap-2">
+                    <button onClick={() => refetch()} className={buttonClass('secondary', 'sm')}>Try again</button>
+                    <Link href="/chats" className={buttonClass('navy', 'sm')}>All chats</Link>
+                  </div>
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="flex flex-col items-center py-14 text-center">
+                  <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-primary shadow-lift">
+                    <MessageCircle size={26} aria-hidden />
+                  </span>
+                  <p className="mt-5 font-display text-xl font-bold text-navy">Start the conversation</p>
+                  <p className="mt-1.5 max-w-xs text-sm text-muted">
+                    Ask about availability, visiting times or the deposit. Tap a suggestion below to begin.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {hasNextPage && (
+                    <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage} className="mb-3 self-center rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-muted ring-1 ring-inset ring-navy/10">
+                      {isFetchingNextPage ? 'Loading…' : 'Load earlier messages'}
+                    </button>
+                  )}
+                  {messages.map((message, i) => {
+                    const prev = messages[i - 1];
+                    const nextMsg = messages[i + 1];
+                    const newDay = !prev || dayKey(prev.createdAt) !== dayKey(message.createdAt);
+                    const lastInGroup =
+                      !nextMsg || nextMsg.senderId !== message.senderId || dayKey(nextMsg.createdAt) !== dayKey(message.createdAt);
+                    return (
+                      <div key={message.id} className="flex flex-col">
+                        {newDay && <DaySeparator iso={message.createdAt} />}
+                        <MessageBubble message={message} isMine={message.senderId === profile?.id} lastInGroup={lastInGroup} />
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Composer — hidden when the thread can't be loaded, since a send would only be refused */}
+          {!isError && (
+            <div className="border-t border-navy/[0.08] bg-white px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5 sm:px-5">
+              <div className="mx-auto max-w-3xl">
+                <QuickReplies onSelect={(t) => setText((prev) => (prev ? `${prev} ${t}` : t))} />
+                <div className="mt-2 flex items-end gap-2 rounded-2xl bg-cream p-1.5 pl-4 ring-1 ring-inset ring-navy/10 focus-within:bg-white focus-within:ring-2 focus-within:ring-primary">
+                  <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    placeholder="Write a message…"
+                    aria-label="Message"
+                    rows={1}
+                    maxLength={4000}
+                    className="max-h-32 flex-1 resize-none bg-transparent py-2.5 text-[15px] text-ink outline-none placeholder:text-muted"
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={!text.trim() || sending}
+                    aria-label="Send message"
+                    className="press inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition disabled:bg-primary-disabled"
+                  >
+                    <SendHorizontal size={19} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -278,10 +315,8 @@ function DaySeparator({ iso }: { iso: string }) {
         ? 'Yesterday'
         : d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   return (
-    <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-muted-soft">
-      <span className="h-px flex-1 bg-hairline-soft" />
-      {label}
-      <span className="h-px flex-1 bg-hairline-soft" />
+    <div className="my-5 flex justify-center">
+      <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-muted ring-1 ring-inset ring-navy/[0.08]">{label}</span>
     </div>
   );
 }
@@ -293,15 +328,15 @@ function MessageBubble({ message, isMine, lastInGroup }: { message: Message; isM
   return (
     <div className={`flex max-w-[80%] flex-col ${isMine ? 'items-end self-end' : 'items-start self-start'} ${lastInGroup ? 'mb-3' : 'mb-1'}`}>
       <div
-        className={`whitespace-pre-wrap break-words rounded-3xl px-4 py-2.5 leading-6 ${
+        className={`whitespace-pre-wrap break-words rounded-[20px] px-4 py-2.5 text-[15px] leading-6 ${
           isMine
-            ? `bg-chat-sent-bg text-chat-sent-text ${lastInGroup ? 'rounded-br-lg' : ''}`
-            : `bg-chat-received-bg text-chat-received-text ${lastInGroup ? 'rounded-bl-lg' : ''}`
+            ? `bg-chat-sent-bg text-chat-sent-text ${lastInGroup ? 'rounded-br-md' : ''}`
+            : `bg-white text-ink ring-1 ring-inset ring-navy/[0.08] ${lastInGroup ? 'rounded-bl-md' : ''}`
         }`}
       >
         {message.body}
       </div>
-      {lastInGroup && <span className="mt-1 px-1 text-[11px] text-muted-soft">{time}</span>}
+      {lastInGroup && <span className="mt-1 px-1 text-[11px] text-muted">{time}</span>}
     </div>
   );
 }

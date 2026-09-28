@@ -1,5 +1,7 @@
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -23,16 +25,18 @@ export default function SignInPage() {
     setError(null);
     try {
       await sendPhoneOtp(formatted);
-      router.push(`/verify-otp?phone=${encodeURIComponent(formatted)}`);
+      // Carry ?next= (set by middleware / an expired session) through to verify-otp.
+      const next = new URLSearchParams(window.location.search).get('next');
+      router.push(`/verify-otp?phone=${encodeURIComponent(formatted)}${next ? `&next=${encodeURIComponent(next)}` : ''}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to send OTP');
+      setError(friendlyError(e, 'We couldn’t send the code. Check the number and try again.'));
     } finally {
       setLoading(false);
     }
   }
 
   function handleGoogle() {
-    alert("Google sign-in isn't set up yet — please continue with your phone number for now.");
+    setError('Google sign-in isn’t available yet — please continue with your mobile number.');
   }
 
   return (
@@ -44,7 +48,7 @@ export default function SignInPage() {
       <label className="block text-sm font-medium text-muted mb-2" htmlFor="phone">
         Mobile Number
       </label>
-      <div className="flex items-center border border-hairline rounded-2xl px-4 py-3 bg-surface mb-4">
+      <div className="flex items-center border border-hairline rounded-2xl px-4 py-3 bg-surface mb-4 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
         <span className="bg-primary-light text-primary font-semibold text-sm rounded-lg px-2 py-1 mr-3">
           +91
         </span>
@@ -58,7 +62,7 @@ export default function SignInPage() {
         />
       </div>
 
-      {error && <p className="text-destructive text-sm mb-4">{error}</p>}
+      {error && <p role="alert" className="mb-4 text-sm text-destructive-pressed">{error}</p>}
 
       <button
         onClick={handleContinue}

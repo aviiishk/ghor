@@ -35,7 +35,9 @@ export function middleware(request: NextRequest) {
   if (matches(pathname, PROTECTED_PREFIXES) && !hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = '/sign-in';
-    url.searchParams.set('next', pathname);
+    // Keep the full destination (e.g. /browse?locality=Beltola) so sign-in returns there.
+    url.search = '';
+    url.searchParams.set('next', pathname + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
 

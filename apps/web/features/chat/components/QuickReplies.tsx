@@ -10,13 +10,13 @@ const QUICK_REPLIES = [
 
 export function QuickReplies({ onSelect }: { onSelect: (text: string) => void }) {
   return (
-    <div className="flex gap-2 overflow-x-auto px-4 pb-2">
+    <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
       {QUICK_REPLIES.map((text) => (
         <button
           key={text}
           type="button"
           onClick={() => onSelect(text)}
-          className="shrink-0 bg-white border border-primary text-primary text-xs font-semibold rounded-full px-3 py-1.5"
+          className="press h-8 shrink-0 rounded-full bg-primary-light px-3.5 text-xs font-bold text-primary hover:bg-primary-tint"
         >
           {text}
         </button>

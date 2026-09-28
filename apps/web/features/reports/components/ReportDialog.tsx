@@ -3,12 +3,15 @@
 import { useState } from 'react';
 import { useCreateReport } from '../hooks';
 import type { ReportReasonCategory } from '../api';
+import { Dialog, useToast } from '@/components/ui/overlay';
+import { buttonClass, cx, inputBase } from '@/components/ui';
+import { friendlyError } from '@/lib/errors';
 
-const CATEGORIES: { value: ReportReasonCategory; label: string }[] = [
-  { value: 'spam', label: 'Spam' },
-  { value: 'fake', label: 'Fake' },
-  { value: 'inappropriate', label: 'Inappropriate' },
-  { value: 'other', label: 'Other' },
+const CATEGORIES: { value: ReportReasonCategory; label: string; hint: string }[] = [
+  { value: 'fake', label: 'Fake or misleading', hint: 'Photos or details don’t match the place' },
+  { value: 'spam', label: 'Spam or broker', hint: 'Not the owner, or charging a fee' },
+  { value: 'inappropriate', label: 'Inappropriate', hint: 'Offensive or unsafe content' },
+  { value: 'other', label: 'Something else', hint: 'Tell us below' },
 ];
 
 export function ReportDialog({
@@ -20,84 +23,102 @@ export function ReportDialog({
   onClose: () => void;
   listingId: string;
 }) {
-  const [category, setCategory] = useState<ReportReasonCategory>('spam');
+  const [category, setCategory] = useState<ReportReasonCategory>('fake');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const createReport = useCreateReport();
-
-  if (!open) return null;
+  const toast = useToast();
 
   async function handleSubmit() {
     setError(null);
-    if (!reason.trim()) {
-      setError('Tell us briefly what looks wrong with this listing.');
+    setFieldError(null);
+    if (reason.trim().length < 5) {
+      setFieldError('Add a short description of what’s wrong (at least 5 characters).');
       return;
     }
     try {
       await createReport.mutateAsync({ listingId, reason: reason.trim(), reasonCategory: category });
       setReason('');
       onClose();
+      toast('Thanks — GHOR will review this listing.');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      setError(friendlyError(e, 'We couldn’t send your report. Please try again.'));
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-        <h2 className="text-lg font-bold text-ink mb-1">Report this listing</h2>
-        <p className="text-muted text-sm mb-4">
-          Let us know if something looks off — spam, fake, or otherwise inappropriate.
-        </p>
-
-        {error && (
-          <div className="bg-destructive-pale text-destructive-pressed rounded-xl px-3 py-2 mb-4 text-sm">
-            {error}
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2 mb-4">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Report this listing"
+      description="Reports are private. A person at GHOR reviews every one."
+      footer={
+        <>
+          <button type="button" onClick={onClose} className={buttonClass('ghost')}>
+            Cancel
+          </button>
+          <button type="button" onClick={handleSubmit} disabled={createReport.isPending} className={buttonClass('navy')}>
+            {createReport.isPending ? 'Sending…' : 'Send report'}
+          </button>
+        </>
+      }
+    >
+      <fieldset>
+        <legend className="text-sm font-semibold text-navy">What’s the problem?</legend>
+        <div className="mt-3 grid gap-2">
           {CATEGORIES.map((c) => {
             const active = category === c.value;
             return (
-              <button
+              <label
                 key={c.value}
-                type="button"
-                onClick={() => setCategory(c.value)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                  active ? 'bg-primary text-white' : 'bg-surface text-ink'
-                }`}
+                className={cx(
+                  'flex cursor-pointer items-start gap-3 rounded-xl p-3 ring-inset transition-colors',
+                  active ? 'bg-primary-light ring-2 ring-primary' : 'ring-1 ring-hairline hover:ring-ink/30',
+                )}
               >
-                {c.label}
-              </button>
+                <input
+                  type="radio"
+                  name="report-category"
+                  value={c.value}
+                  checked={active}
+                  onChange={() => setCategory(c.value)}
+                  className="mt-1 accent-[#2563EB]"
+                />
+                <span>
+                  <span className="block font-semibold text-ink">{c.label}</span>
+                  <span className="block text-sm text-muted">{c.hint}</span>
+                </span>
+              </label>
             );
           })}
         </div>
+      </fieldset>
 
-        <textarea
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="What's wrong with this listing?"
-          rows={3}
-          className="w-full border border-hairline rounded-2xl px-4 py-3 text-ink mb-4"
-        />
-
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={createReport.isPending}
-          className="w-full bg-destructive text-white font-semibold rounded-full py-3.5 mb-2 disabled:opacity-70"
-        >
-          Submit Report
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full text-muted font-semibold py-2.5"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
+      <label htmlFor="report-reason" className="mt-5 block text-sm font-semibold text-navy">
+        Details
+      </label>
+      <textarea
+        id="report-reason"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="e.g. The photos are of a different building."
+        rows={3}
+        maxLength={1000}
+        aria-invalid={!!fieldError}
+        aria-describedby={fieldError ? 'report-reason-error' : undefined}
+        className={cx(inputBase, 'mt-2 resize-none py-3', fieldError && 'ring-2 ring-destructive')}
+      />
+      {fieldError && (
+        <p id="report-reason-error" className="mt-1.5 text-sm text-destructive-pressed">
+          {fieldError}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 rounded-xl bg-destructive-pale px-3 py-2.5 text-sm text-destructive-pressed">
+          {error}
+        </p>
+      )}
+    </Dialog>
   );
 }

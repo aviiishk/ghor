@@ -7,20 +7,16 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   BadgeCheck,
-  BedDouble,
-  CalendarDays,
   Check,
   Clock,
   Flag,
   GraduationCap,
   IndianRupee,
-  MapPin,
   MessageCircle,
   Pencil,
   Phone,
   Share2,
   ShieldCheck,
-  Wallet,
   XCircle,
 } from 'lucide-react';
 import { useListing, useUpdateListing } from '@/features/listings/hooks';
@@ -32,37 +28,46 @@ import { ReviewsSection } from '@/features/reviews/components/ReviewsSection';
 import { SimilarListings } from '@/features/listings/components/SimilarListings';
 import { ListingInsights } from '@/features/listings/components/ListingInsights';
 import { PhotoGallery } from '@/features/listings/components/PhotoGallery';
+import {
+  AboutText,
+  AmenityList,
+  DetailSection,
+  KeyFacts,
+  ListingHeadline,
+  PriceHeading,
+  formatAvailable,
+} from '@/features/listings/components/ListingDetailView';
 import { useOwner } from '@/features/owners/hooks';
 import { describeLastActive, describeResponseTime } from '@/features/owners/api';
 import { trackEvent } from '@/lib/analytics';
-import { amenityIcon, amenityLabel } from '@/features/listings/amenities';
-import { Avatar, Badge, EmptyState, IconTile, PriceTag, Skeleton, StatusBadge, formatRent } from '@/components/ui';
+import { friendlyError } from '@/lib/errors';
+import { useToast } from '@/components/ui/overlay';
+import { Avatar, Button, EmptyState, IconButton, Skeleton, StatusBadge, buttonClass, cx, formatRent } from '@/components/ui';
+
+const STATUS_DONE: Record<string, string> = {
+  pending: 'Submitted for review — we’ll notify you when it’s live.',
+  rented: 'Marked as rented. It’s hidden from search.',
+  approved: 'Listed again. Renters can find it now.',
+};
 
 const LocationMap = dynamic(() => import('@/features/listings/components/LocationMap'), {
   ssr: false,
   loading: () => <div className="skeleton h-full w-full rounded-none" />,
 });
 
-function formatDate(iso: string | null) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return d.getTime() <= Date.now() ? 'Available now' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
 function DetailSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6" aria-busy="true">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8" aria-busy="true">
       <Skeleton className="h-5 w-24" />
-      <Skeleton className="mt-5 h-[300px] rounded-3xl sm:h-[440px]" />
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px]">
-        <div className="space-y-3">
-          <Skeleton className="h-9 w-2/3" />
+      <Skeleton className="mt-5 h-[300px] rounded-2xl sm:h-[480px]" />
+      <div className="mt-10 grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-4">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-12 w-3/4" />
           <Skeleton className="h-5 w-1/3" />
-          <div className="grid grid-cols-2 gap-3 pt-4 sm:grid-cols-4">
-            {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-20 rounded-2xl" />)}
-          </div>
+          <Skeleton className="mt-6 h-28 rounded-2xl" />
         </div>
-        <Skeleton className="h-64 rounded-3xl" />
+        <Skeleton className="h-72 rounded-2xl" />
       </div>
     </div>
   );
@@ -80,11 +85,12 @@ export default function ListingDetailPage() {
   const [shared, setShared] = useState(false);
   // Hooks must run before the early returns below, so this keys off listing?.ownerId.
   const { data: owner } = useOwner(listing?.ownerId);
+  const toast = useToast();
 
   if (isLoading) return <DetailSkeleton />;
   if (isError || !listing) {
     return (
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <EmptyState
           icon={XCircle}
           title="This listing isn’t available"
@@ -101,14 +107,16 @@ export default function ListingDetailPage() {
     .map(([key]) => key);
   const responseTime = describeResponseTime(owner?.responseTimeMinutes ?? null);
   const lastActive = describeLastActive(listing.owner.lastActiveAt);
-  const available = formatDate(listing.availableFrom);
+  const available = formatAvailable(listing.availableFrom);
+  const ownerName = listing.owner.fullName ?? 'Owner';
 
   async function handleStatusChange(status: 'pending' | 'approved' | 'rented') {
     setError(null);
     try {
       await updateListing.mutateAsync({ status });
+      toast(STATUS_DONE[status] ?? 'Listing updated');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      setError(friendlyError(e, 'We couldn’t update this listing. Please try again.'));
     }
   }
 
@@ -121,7 +129,7 @@ export default function ListingDetailPage() {
       const conversation = await createConversation.mutateAsync(listing!.id);
       router.push(`/chat/${conversation.id}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Could not start the conversation');
+      setError(friendlyError(e, 'We couldn’t open a chat with this owner. Please try again.'));
     }
   }
 
@@ -130,7 +138,7 @@ export default function ListingDetailPage() {
     const phone = listing!.owner.phone;
     trackEvent({ eventName: 'contact_tap', listingId: listing!.id, channel: 'call' });
     if (!phone) {
-      alert("This owner hasn't added a phone number yet.");
+      setError("This owner hasn't added a phone number yet. Send them a message instead.");
       return;
     }
     window.location.href = `tel:${phone}`;
@@ -146,6 +154,7 @@ export default function ListingDetailPage() {
       else {
         await navigator.clipboard.writeText(url);
         setShared(true);
+        toast('Link copied — paste it anywhere to share');
         setTimeout(() => setShared(false), 2000);
       }
     } catch {
@@ -153,47 +162,15 @@ export default function ListingDetailPage() {
     }
   }
 
-  const facts = [
-    { icon: BedDouble, label: 'Type', value: listing.propertyType === 'room' ? 'Room' : 'Flat' },
-    { icon: IndianRupee, label: 'Rent', value: `${formatRent(listing.rent)}/mo` },
-    { icon: Wallet, label: 'Deposit', value: listing.deposit != null ? formatRent(listing.deposit) : 'Ask owner' },
-    { icon: CalendarDays, label: 'Move-in', value: available ?? 'Ask owner' },
-  ];
-
-  const ownerActions = (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-muted">Status</span>
-        <StatusBadge status={listing.status} />
-      </div>
-      <Link href={`/listing/${listing.id}/edit`} className="press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white font-semibold text-ink ring-1 ring-hairline hover:ring-ink/30">
-        <Pencil size={17} aria-hidden /> Edit details
-      </Link>
-      {listing.status === 'draft' && (
-        <button onClick={() => handleStatusChange('pending')} disabled={updateListing.isPending} className="press h-12 w-full rounded-full bg-primary font-bold text-white hover:bg-primary-pressed disabled:opacity-70">
-          Submit for review
-        </button>
-      )}
-      {listing.status === 'rejected' && (
-        <button onClick={() => handleStatusChange('pending')} disabled={updateListing.isPending} className="press h-12 w-full rounded-full bg-primary font-bold text-white hover:bg-primary-pressed disabled:opacity-70">
-          Resubmit for review
-        </button>
-      )}
-      {listing.status === 'approved' && (
-        <button onClick={() => handleStatusChange('rented')} disabled={updateListing.isPending} className="press h-12 w-full rounded-full bg-navy font-bold text-white hover:bg-navy-soft disabled:opacity-70">
-          Mark as rented
-        </button>
-      )}
-      {listing.status === 'rented' && (
-        <button onClick={() => handleStatusChange('approved')} disabled={updateListing.isPending} className="press h-12 w-full rounded-full bg-primary font-bold text-white hover:bg-primary-pressed disabled:opacity-70">
-          Mark as available again
-        </button>
-      )}
-    </div>
-  );
+  const statusAction =
+    listing.status === 'draft' ? { label: 'Submit for review', to: 'pending' as const, variant: 'primary' as const } :
+    listing.status === 'rejected' ? { label: 'Resubmit for review', to: 'pending' as const, variant: 'primary' as const } :
+    listing.status === 'approved' ? { label: 'Mark as rented', to: 'rented' as const, variant: 'navy' as const } :
+    listing.status === 'rented' ? { label: 'Mark as available again', to: 'approved' as const, variant: 'primary' as const } :
+    null;
 
   const ownerBanner: Record<string, { tone: string; icon: typeof Clock; title: string; body: string } | undefined> = {
-    draft: { tone: 'bg-surface-sunken text-body', icon: Pencil, title: 'Draft — only you can see this', body: 'Add at least 3 photos, then submit it for review.' },
+    draft: { tone: 'bg-white ring-1 ring-inset ring-navy/10 text-body', icon: Pencil, title: 'Draft — only you can see this', body: 'Add at least 3 photos, then submit it for review.' },
     pending: { tone: 'bg-warning-pale text-warning-deep', icon: Clock, title: 'In review', body: 'We check every listing before it goes live. You’ll get a notification when it’s approved.' },
     rejected: { tone: 'bg-destructive-pale text-destructive-pressed', icon: XCircle, title: 'Needs changes', body: 'This listing wasn’t approved. Edit the details, then resubmit it for review.' },
     rented: { tone: 'bg-navy text-white', icon: Check, title: 'Marked as rented', body: 'It’s hidden from search. Mark it available again when the room frees up.' },
@@ -201,19 +178,27 @@ export default function ListingDetailPage() {
   const banner = isOwner ? ownerBanner[listing.status] : undefined;
 
   return (
-    <div className="pb-32 lg:pb-16">
-      <div className="mx-auto max-w-6xl px-4 pt-6 sm:px-6">
-        <div className="mb-5 flex items-center justify-between">
-          <button onClick={() => router.back()} className="inline-flex items-center gap-1.5 rounded-full px-2 py-1.5 text-sm font-semibold text-body hover:bg-white">
-            <ArrowLeft size={17} aria-hidden /> Back
+    <div className="pb-32 lg:pb-20">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 sm:pt-6 lg:px-8">
+        {/* Desktop top row */}
+        <div className="mb-5 hidden items-center justify-between sm:flex">
+          <button onClick={() => router.back()} className="inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-body hover:bg-white">
+            <ArrowLeft size={17} aria-hidden /> Back to homes
           </button>
-          <button onClick={handleShare} className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-body hover:bg-white">
-            <Share2 size={16} aria-hidden /> {shared ? 'Link copied' : 'Share'}
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={handleShare} className="inline-flex h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold text-body underline-offset-4 hover:bg-white hover:underline">
+              <Share2 size={16} aria-hidden /> {shared ? 'Link copied' : 'Share'}
+            </button>
+            {!isOwner && (
+              <button onClick={() => setReportOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold text-body underline-offset-4 hover:bg-white hover:underline">
+                <Flag size={15} aria-hidden /> Report
+              </button>
+            )}
+          </div>
         </div>
 
         {banner && (
-          <div className={`mb-5 flex items-start gap-3 rounded-2xl p-4 ${banner.tone}`}>
+          <div className={cx('mb-5 mt-4 flex items-start gap-3 rounded-2xl p-4 sm:mt-0', banner.tone)}>
             <banner.icon size={20} className="mt-0.5 shrink-0" aria-hidden />
             <div>
               <p className="font-bold">{banner.title}</p>
@@ -225,178 +210,234 @@ export default function ListingDetailPage() {
         <PhotoGallery
           images={listing.images}
           title={listing.title}
-          overlay={
-            <div className="flex gap-1.5">
-              <span className="glass-chip rounded-full px-2.5 py-1 text-xs font-bold capitalize">{listing.propertyType}</span>
-              {listing.status === 'approved' && (
-                <span className="glass-chip inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-success-deep">
-                  <ShieldCheck size={13} aria-hidden /> Verified by GHOR
-                </span>
-              )}
-            </div>
+          mobileActions={
+            <>
+              <IconButton icon={ArrowLeft} label="Back" tone="solid" onClick={() => router.back()} />
+              <IconButton icon={shared ? Check : Share2} label={shared ? 'Link copied' : 'Share listing'} tone="solid" onClick={handleShare} />
+            </>
           }
         />
 
-        <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px] lg:gap-12">
+        <div className="mt-8 grid grid-cols-1 gap-10 lg:mt-12 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-16">
           {/* ---------------------------------------------------- Main column */}
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              {listing.propertyVerified && <Badge tone="success" icon={BadgeCheck}>Property verified</Badge>}
-              <RatingDisplay avgRating={listing.avgRating} reviewCount={listing.reviewCount} />
-            </div>
-            <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-ink sm:text-4xl">{listing.title}</h1>
-            <p className="mt-2 flex items-center gap-1.5 text-body">
-              <MapPin size={17} className="text-primary" aria-hidden /> {listing.locality}, {listing.city}
-            </p>
+            <ListingHeadline
+              title={listing.title}
+              propertyType={listing.propertyType}
+              locality={listing.locality}
+              city={listing.city}
+              verified={listing.status === 'approved'}
+              propertyVerified={listing.propertyVerified}
+              rating={
+                listing.avgRating != null ? (
+                  <a href="#reviews" className="hover:underline">
+                    <RatingDisplay avgRating={listing.avgRating} reviewCount={listing.reviewCount} />
+                  </a>
+                ) : null
+              }
+            />
 
-            <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {facts.map((f) => (
-                <div key={f.label} className="rounded-2xl bg-white p-4 ring-1 ring-navy/[0.06]">
-                  <f.icon size={20} className="text-primary" aria-hidden />
-                  <dt className="mt-2 text-xs font-semibold text-muted">{f.label}</dt>
-                  <dd className="font-display font-bold text-ink">{f.value}</dd>
-                </div>
-              ))}
-            </dl>
+            <KeyFacts propertyType={listing.propertyType} rent={listing.rent} deposit={listing.deposit} availableFrom={listing.availableFrom} />
+
+            {/* Owner strip — the person, right under the facts */}
+            <Link href={`/owner/${listing.ownerId}`} className="group mt-8 flex items-center gap-4 rounded-2xl p-1 pr-3">
+              <Avatar name={listing.owner.fullName} size="lg" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-ink group-hover:underline">Listed by {ownerName}</p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+                  {listing.owner.phoneVerified && (
+                    <span className="inline-flex items-center gap-1 font-semibold text-success-deep"><BadgeCheck size={14} aria-hidden /> Phone verified</span>
+                  )}
+                  {responseTime && <span>{responseTime}</span>}
+                  {!responseTime && lastActive && <span>{lastActive}</span>}
+                </p>
+              </div>
+            </Link>
 
             {listing.description && (
-              <section className="mt-10">
-                <h2 className="text-xl font-bold text-ink">About this place</h2>
-                <p className="mt-3 whitespace-pre-line leading-7 text-body">{listing.description}</p>
-              </section>
+              <DetailSection title="About this place">
+                <AboutText text={listing.description} />
+              </DetailSection>
             )}
 
             {amenities.length > 0 && (
-              <section className="mt-10">
-                <h2 className="text-xl font-bold text-ink">What this place offers</h2>
-                <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {amenities.map((key) => (
-                    <li key={key} className="flex items-center gap-3 rounded-2xl bg-white p-3 ring-1 ring-navy/[0.06]">
-                      <IconTile icon={amenityIcon(key)} size="sm" />
-                      <span className="font-semibold text-ink">{amenityLabel(key)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              <DetailSection title="What’s included">
+                <AmenityList amenities={amenities} />
+              </DetailSection>
             )}
 
             {listing.institutions.length > 0 && (
-              <section className="mt-10">
-                <h2 className="text-xl font-bold text-ink">Nearby</h2>
-                <div className="mt-4 flex flex-wrap gap-2">
+              <DetailSection title="Nearby">
+                <div className="flex flex-wrap gap-2">
                   {listing.institutions.map((tag) => (
-                    <span key={tag.institution.id} className="inline-flex items-center gap-1.5 rounded-full bg-primary-light px-3.5 py-2 text-sm font-semibold text-primary">
-                      <GraduationCap size={16} aria-hidden /> {tag.institution.name}
+                    <span key={tag.institution.id} className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-sm font-semibold text-navy ring-1 ring-inset ring-navy/10">
+                      <GraduationCap size={17} className="text-primary" aria-hidden /> {tag.institution.name}
                     </span>
                   ))}
                 </div>
-              </section>
+              </DetailSection>
             )}
 
             {listing.latitude != null && listing.longitude != null && (
-              <section className="mt-10">
-                <h2 className="text-xl font-bold text-ink">Where it is</h2>
-                <p className="mt-1 text-sm text-muted">{listing.locality} · approximate area, the owner will share the exact address</p>
-                <div className="relative mt-4 h-64 overflow-hidden rounded-3xl ring-1 ring-navy/[0.06] sm:h-72">
+              <DetailSection title="Where it is" id="location">
+                <p className="-mt-2 mb-4 text-muted">{listing.locality}, {listing.city} · approximate area. The owner shares the exact address when you arrange a visit.</p>
+                <div className="relative isolate h-72 overflow-hidden rounded-2xl ring-1 ring-inset ring-navy/[0.08] sm:h-80">
                   <LocationMap lat={listing.latitude} lng={listing.longitude} />
                 </div>
-              </section>
+              </DetailSection>
             )}
 
-            {/* Owner trust card */}
-            <section className="mt-10 rounded-3xl bg-white p-6 ring-1 ring-navy/[0.06]">
-              <div className="flex items-start gap-4">
-                <Avatar name={listing.owner.fullName} size="lg" />
+            {/* Meet the owner — a person, not a card */}
+            <DetailSection title="Meet the owner">
+              <div className="flex items-start gap-5">
+                <Avatar name={listing.owner.fullName} size="xl" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-muted">Listed by</p>
-                  <Link href={`/owner/${listing.ownerId}`} className="font-display text-lg font-bold text-ink hover:underline">
-                    {listing.owner.fullName ?? 'Owner'}
-                  </Link>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {listing.owner.phoneVerified && <Badge tone="success" icon={BadgeCheck}>Phone verified</Badge>}
-                    {listing.owner.idVerificationStatus === 'verified' && <Badge tone="success" icon={ShieldCheck}>ID verified</Badge>}
+                  <p className="font-display text-xl font-bold text-navy">{ownerName}</p>
+                  <p className="text-sm text-muted">
+                    Property owner{owner ? ` · on GHOR since ${new Date(owner.createdAt).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}` : ''}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {listing.owner.phoneVerified && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-success-pale px-2.5 py-1 text-xs font-bold text-success-deep"><BadgeCheck size={13} aria-hidden /> Phone verified</span>
+                    )}
+                    {listing.owner.idVerificationStatus === 'verified' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-success-pale px-2.5 py-1 text-xs font-bold text-success-deep"><ShieldCheck size={13} aria-hidden /> ID verified</span>
+                    )}
                   </div>
                 </div>
               </div>
-              <ul className="mt-5 grid gap-2 text-sm text-body sm:grid-cols-2">
-                {responseTime && <li className="flex items-center gap-2"><MessageCircle size={16} className="text-primary" aria-hidden /> {responseTime}</li>}
-                {owner?.responseRate != null && <li className="flex items-center gap-2"><Check size={16} className="text-primary" aria-hidden /> {owner.responseRate}% response rate</li>}
-                {lastActive && <li className="flex items-center gap-2"><Clock size={16} className="text-primary" aria-hidden /> {lastActive}</li>}
-                {owner && owner.reviewCount > 0 && (
-                  <li className="flex items-center gap-2"><RatingDisplay avgRating={owner.avgRating} reviewCount={owner.reviewCount} size="sm" /> across their listings</li>
-                )}
-              </ul>
-              <div className="mt-5 flex items-center justify-between border-t border-hairline-soft pt-4">
-                <Link href={`/owner/${listing.ownerId}`} className="text-sm font-bold text-primary hover:underline">View profile</Link>
+              {(responseTime || owner?.responseRate != null || lastActive || (owner && owner.reviewCount > 0)) && (
+                <ul className="mt-6 grid grid-cols-1 gap-x-8 gap-y-3 text-[15px] text-body sm:grid-cols-2">
+                  {responseTime && <li className="flex items-center gap-2.5"><MessageCircle size={17} className="shrink-0 text-primary" aria-hidden /> {responseTime}</li>}
+                  {owner?.responseRate != null && <li className="flex items-center gap-2.5"><Check size={17} className="shrink-0 text-primary" aria-hidden /> Replies to {owner.responseRate}% of enquiries</li>}
+                  {lastActive && <li className="flex items-center gap-2.5"><Clock size={17} className="shrink-0 text-primary" aria-hidden /> {lastActive}</li>}
+                  {owner && owner.reviewCount > 0 && (
+                    <li className="flex items-center gap-2.5"><RatingDisplay avgRating={owner.avgRating} reviewCount={owner.reviewCount} size="sm" /> across their listings</li>
+                  )}
+                </ul>
+              )}
+              <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+                <Link href={`/owner/${listing.ownerId}`} className={buttonClass('secondary', 'sm')}>View {ownerName.split(' ')[0]}’s profile</Link>
                 {!isOwner && (
-                  <button onClick={() => setReportOpen(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-muted hover:text-destructive">
-                    <Flag size={13} aria-hidden /> Report listing
+                  <button onClick={() => setReportOpen(true)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted underline-offset-4 hover:text-destructive-pressed hover:underline sm:hidden">
+                    <Flag size={14} aria-hidden /> Report this listing
                   </button>
                 )}
               </div>
-            </section>
+            </DetailSection>
+
+            {!isOwner && (
+              <DetailSection title="Before you visit">
+                <ul className="space-y-4 text-[15px] leading-6 text-body">
+                  <li className="flex gap-3">
+                    <IndianRupee size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+                    <span><strong className="font-semibold text-ink">See the place before paying anything.</strong> GHOR never charges renters, and owners here shouldn’t ask for a fee to show a room.</span>
+                  </li>
+                  <li className="flex gap-3">
+                    <MessageCircle size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+                    <span><strong className="font-semibold text-ink">Get the exact address in chat.</strong> Visit in daylight, and take someone with you if you can.</span>
+                  </li>
+                  <li className="flex gap-3">
+                    <Check size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+                    <span><strong className="font-semibold text-ink">Agree the details in writing.</strong> Rent, deposit, and what’s included — electricity, water, Wi-Fi — before you move in.</span>
+                  </li>
+                </ul>
+                <p className="mt-5 text-sm text-muted">
+                  Something not right?{' '}
+                  <button onClick={() => setReportOpen(true)} className="font-semibold text-navy underline underline-offset-4">
+                    Report this listing
+                  </button>
+                  {' '}— a person at GHOR checks every report.
+                </p>
+              </DetailSection>
+            )}
+
+            <ReviewsSection listingId={listing.id} avgRating={listing.avgRating} reviewCount={listing.reviewCount} />
+
+            {/* Owner-only: their listing's stats. */}
+            {isOwner && <ListingInsights listingId={listing.id} />}
           </div>
 
-          {/* ---------------------------------------------------- Contact / owner card */}
+          {/* ---------------------------------------------------- Contact card */}
           <aside className="hidden lg:block">
-            <div className="sticky top-24 rounded-3xl bg-white p-6 shadow-[0_24px_60px_-28px_rgba(11,27,63,0.45)] ring-1 ring-navy/[0.06]">
-              <PriceTag amount={listing.rent} size="lg" />
-              <p className="mt-1 text-sm text-muted">
-                {listing.deposit != null ? `Deposit ${formatRent(listing.deposit)}` : 'Deposit: ask the owner'}
-              </p>
+            <div className="sticky top-24 rounded-2xl bg-white p-7 shadow-lift ring-1 ring-inset ring-navy/[0.08]">
+              <PriceHeading rent={listing.rent} deposit={listing.deposit} />
+              {available && (
+                <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-cream px-3 py-1.5 text-sm font-semibold text-navy">
+                  <Clock size={15} aria-hidden /> {available}
+                </p>
+              )}
               {error && <p role="alert" className="mt-4 rounded-xl bg-destructive-pale px-3 py-2 text-sm text-destructive-pressed">{error}</p>}
-              <div className="mt-6">
+              <div className="mt-6 space-y-3">
                 {isOwner ? (
-                  ownerActions
+                  <>
+                    <div className="flex items-center justify-between rounded-xl bg-cream px-4 py-3">
+                      <span className="text-sm font-semibold text-muted">Status</span>
+                      <StatusBadge status={listing.status} />
+                    </div>
+                    <Link href={`/listing/${listing.id}/edit`} className={buttonClass('secondary', 'lg', true)}>
+                      <Pencil size={18} aria-hidden /> Edit details
+                    </Link>
+                    {statusAction && (
+                      <Button variant={statusAction.variant} size="lg" block onClick={() => handleStatusChange(statusAction.to)} disabled={updateListing.isPending}>
+                        {updateListing.isPending ? 'Updating…' : statusAction.label}
+                      </Button>
+                    )}
+                  </>
                 ) : (
-                  <div className="space-y-3">
-                    <button onClick={handleChat} disabled={createConversation.isPending} className="press flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-bold text-white shadow-[0_12px_28px_-10px_rgba(37,99,235,0.7)] hover:bg-primary-pressed disabled:opacity-70">
-                      <MessageCircle size={20} aria-hidden /> Chat with Owner
-                    </button>
-                    <button onClick={handleCall} className="press flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white font-semibold text-ink ring-1 ring-hairline hover:ring-ink/30">
-                      <Phone size={18} aria-hidden /> Call owner
-                    </button>
-                  </div>
+                  <>
+                    <Button size="lg" block icon={MessageCircle} onClick={handleChat} disabled={createConversation.isPending}>
+                      {createConversation.isPending ? 'Opening chat…' : 'Chat with owner'}
+                    </Button>
+                    <Button variant="secondary" size="lg" block icon={Phone} onClick={handleCall}>
+                      Call owner
+                    </Button>
+                  </>
                 )}
               </div>
               {!isOwner && (
-                <ul className="mt-6 space-y-2 border-t border-hairline-soft pt-5 text-sm text-body">
-                  <li className="flex items-center gap-2"><ShieldCheck size={16} className="text-success-deep" aria-hidden /> Reviewed by GHOR before going live</li>
-                  <li className="flex items-center gap-2"><IndianRupee size={16} className="text-primary" aria-hidden /> No brokerage, no viewing fee</li>
+                <ul className="mt-6 space-y-2.5 border-t border-navy/[0.08] pt-5 text-sm text-body">
+                  <li className="flex items-center gap-2.5"><ShieldCheck size={16} className="shrink-0 text-success-deep" aria-hidden /> Reviewed by GHOR before going live</li>
+                  <li className="flex items-center gap-2.5"><IndianRupee size={16} className="shrink-0 text-primary" aria-hidden /> No brokerage, no viewing fee</li>
                 </ul>
               )}
             </div>
           </aside>
         </div>
 
-        <ReviewsSection listingId={listing.id} avgRating={listing.avgRating} reviewCount={listing.reviewCount} />
-
-        {/* Owner-only: their listing's stats, instead of "similar listings" to their own. */}
-        {isOwner ? <ListingInsights listingId={listing.id} /> : <SimilarListings listingId={listing.id} />}
+        {!isOwner && <SimilarListings listingId={listing.id} />}
       </div>
 
       {/* ---------------------------------------------------- Mobile sticky bar */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-navy/[0.08] bg-white/95 px-4 py-3 backdrop-blur lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-navy/[0.08] bg-white/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md lg:hidden">
         {error && <p role="alert" className="mb-2 text-sm text-destructive-pressed">{error}</p>}
         {isOwner ? (
           <div className="flex items-center gap-3">
             <StatusBadge status={listing.status} />
-            <Link href={`/listing/${listing.id}/edit`} className="press ml-auto inline-flex h-12 items-center gap-2 rounded-full px-5 font-semibold text-ink ring-1 ring-hairline">
+            <Link href={`/listing/${listing.id}/edit`} className={cx(buttonClass('secondary'), 'ml-auto')}>
               <Pencil size={17} aria-hidden /> Edit
             </Link>
+            {statusAction && (
+              <Button variant={statusAction.variant} onClick={() => handleStatusChange(statusAction.to)} disabled={updateListing.isPending}>
+                {statusAction.to === 'pending' ? 'Submit' : statusAction.to === 'rented' ? 'Mark rented' : 'Relist'}
+              </Button>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-3">
             <div className="min-w-0">
-              <PriceTag amount={listing.rent} size="md" />
-              <p className="truncate text-xs text-muted">{listing.deposit != null ? `Deposit ${formatRent(listing.deposit)}` : 'No brokerage'}</p>
+              <p className="font-display leading-none text-navy">
+                <span className="text-xl font-bold">{formatRent(listing.rent)}</span>
+                <span className="text-xs font-medium text-muted">/month</span>
+              </p>
+              <p className="mt-1 truncate text-xs text-muted">{listing.deposit != null ? `Deposit ${formatRent(listing.deposit)}` : 'No brokerage'}</p>
             </div>
-            <button onClick={handleCall} aria-label="Call owner" className="press ml-auto inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-ink ring-1 ring-hairline">
+            <button onClick={handleCall} aria-label="Call owner" className="press ml-auto inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-navy ring-1 ring-inset ring-hairline">
               <Phone size={19} />
             </button>
-            <button onClick={handleChat} disabled={createConversation.isPending} className="press inline-flex h-12 shrink-0 items-center gap-2 rounded-full bg-primary px-5 font-bold text-white disabled:opacity-70">
-              <MessageCircle size={18} aria-hidden /> Chat
-            </button>
+            <Button size="lg" icon={MessageCircle} onClick={handleChat} disabled={createConversation.isPending} className="!h-12 !px-5">
+              Chat
+            </Button>
           </div>
         )}
       </div>
