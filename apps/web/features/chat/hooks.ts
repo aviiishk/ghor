@@ -6,8 +6,16 @@ export const chatKeys = {
   messages: (conversationId: string) => ['conversations', conversationId, 'messages'] as const,
 };
 
+// Unread counts in the nav come from here, and the only socket is inside an open thread —
+// so refresh while the tab is visible and on return, or a new enquiry never shows up
+// until the user navigates (RC QA 2026-09-28). Background tabs don't poll.
 export function useConversations() {
-  return useQuery({ queryKey: chatKeys.conversations, queryFn: api.listConversations });
+  return useQuery({
+    queryKey: chatKeys.conversations,
+    queryFn: api.listConversations,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
 }
 
 export function useMessages(conversationId: string) {

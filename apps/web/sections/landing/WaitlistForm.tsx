@@ -62,7 +62,7 @@ export function WaitlistForm() {
     "h-14 w-full rounded-2xl bg-white/[0.08] px-5 text-white placeholder:text-white/45 ring-1 ring-white/15 outline-none transition focus:bg-white/[0.12] focus:ring-2 focus:ring-primary";
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-3 sm:grid-cols-2">
+    <form onSubmit={onSubmit} noValidate className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <label className="sm:col-span-2">
         <span className="sr-only">Your name</span>
         <input className={input} placeholder="Your name" autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />

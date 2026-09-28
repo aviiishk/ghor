@@ -35,9 +35,9 @@ function niceMax(max: number): number {
 
 function StatTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="bg-white border border-hairline rounded-2xl px-4 py-3">
-      <p className="text-xs text-muted">{label}</p>
-      <p className="text-2xl font-semibold text-ink mt-0.5">{value}</p>
+    <div className="rounded-2xl bg-white px-4 py-3.5 ring-1 ring-inset ring-navy/[0.08]">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted">{label}</p>
+      <p className="mt-1 font-display text-2xl font-bold text-navy">{value}</p>
       {hint && <p className="text-xs text-muted-soft mt-0.5">{hint}</p>}
     </div>
   );
@@ -165,9 +165,9 @@ export function ListingInsights({ listingId }: { listingId: string }) {
   const { data, isLoading, isError } = useListingInsights(listingId, true);
 
   return (
-    <section id="insights" className="mt-12 scroll-mt-24 border-t border-hairline pt-8">
+    <section id="insights" className="scroll-mt-24 border-t border-navy/[0.08] py-10">
       <div className="flex items-baseline justify-between gap-3 mb-5">
-        <h2 className="text-xl font-semibold text-ink">Insights</h2>
+        <h2 className="font-display text-[1.6rem] font-bold tracking-[-0.025em] text-navy">Insights</h2>
         <span className="text-xs text-muted">Only you can see this</span>
       </div>
 

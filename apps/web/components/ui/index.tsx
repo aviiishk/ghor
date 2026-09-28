@@ -1,12 +1,126 @@
 // GHOR product UI kit (redesign 2026-09-26). One implementation of each primitive, used
 // by every product screen — see root DESIGN.md "Components". Server-safe (no hooks), so
 // both server and client components can import it.
-import type { ComponentType, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, ReactNode } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Clock, FileEdit, Home, ShieldCheck, XCircle, type LucideProps } from 'lucide-react';
+import { Clock, FileEdit, Home, ShieldCheck, XCircle, type LucideProps } from 'lucide-react';
 
 type Icon = ComponentType<LucideProps>;
-const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
+export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
+
+// ---------------------------------------------------------------------------------
+// Buttons (redesign v2, 2026-09-27). One set of variants for every screen, so a primary
+// action looks identical on the landing page, the wizard and the admin queue.
+// ---------------------------------------------------------------------------------
+
+const BUTTON_VARIANTS = {
+  primary: 'bg-primary text-white hover:bg-primary-pressed shadow-[0_10px_24px_-12px_rgba(37,99,235,0.8)]',
+  navy: 'bg-navy text-white hover:bg-navy-soft',
+  secondary: 'bg-white text-ink ring-1 ring-inset ring-hairline hover:ring-ink/30',
+  ghost: 'text-ink hover:bg-ink/[0.05]',
+  destructive: 'bg-destructive-pressed text-white hover:bg-destructive',
+  light: 'bg-white text-navy hover:bg-cream',
+} as const;
+const BUTTON_SIZES = {
+  sm: 'h-9 px-3.5 text-sm gap-1.5',
+  md: 'h-11 px-5 text-sm gap-2',
+  lg: 'h-14 px-7 text-base gap-2',
+} as const;
+
+export type ButtonVariant = keyof typeof BUTTON_VARIANTS;
+export function buttonClass(variant: ButtonVariant = 'primary', size: keyof typeof BUTTON_SIZES = 'md', block = false) {
+  return cx(
+    'press inline-flex shrink-0 items-center justify-center rounded-full font-bold transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+    'disabled:cursor-not-allowed disabled:opacity-60',
+    BUTTON_VARIANTS[variant],
+    BUTTON_SIZES[size],
+    block && 'w-full',
+  );
+}
+
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  block = false,
+  icon: IconCmp,
+  className,
+  children,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: keyof typeof BUTTON_SIZES;
+  block?: boolean;
+  icon?: Icon;
+}) {
+  return (
+    <button type="button" {...rest} className={cx(buttonClass(variant, size, block), className)}>
+      {IconCmp && <IconCmp size={size === 'lg' ? 20 : 17} aria-hidden />}
+      {children}
+    </button>
+  );
+}
+
+export function ButtonLink({
+  href,
+  variant = 'primary',
+  size = 'md',
+  block = false,
+  icon: IconCmp,
+  className,
+  children,
+}: {
+  href: string;
+  variant?: ButtonVariant;
+  size?: keyof typeof BUTTON_SIZES;
+  block?: boolean;
+  icon?: Icon;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link href={href} className={cx(buttonClass(variant, size, block), className)}>
+      {IconCmp && <IconCmp size={size === 'lg' ? 20 : 17} aria-hidden />}
+      {children}
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------------
+
+export const inputBase =
+  'w-full rounded-xl bg-white px-4 text-ink ring-1 ring-inset ring-hairline outline-none transition placeholder:text-muted-soft hover:ring-ink/25 focus:ring-2 focus:ring-primary';
+
+// ---------------------------------------------------------------------------------
+// Page header — the one title treatment for every signed-in screen.
+// ---------------------------------------------------------------------------------
+
+export function PageHeader({
+  title,
+  kicker,
+  meta,
+  actions,
+  className,
+}: {
+  title: ReactNode;
+  kicker?: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <header className={cx('flex flex-wrap items-end justify-between gap-x-6 gap-y-4', className)}>
+      <div className="min-w-0">
+        {kicker && <p className="mb-2 text-sm font-semibold text-primary">{kicker}</p>}
+        <h1 className="font-display text-[2rem] font-bold leading-[1.05] tracking-[-0.03em] text-navy sm:text-[2.75rem]">{title}</h1>
+        {meta && <div className="mt-2 text-[15px] text-muted">{meta}</div>}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+    </header>
+  );
+}
 
 // ---------------------------------------------------------------------------------
 // Badge
@@ -47,24 +161,6 @@ export function Badge({
   );
 }
 
-// "Verified by GHOR" = the listing passed moderation (status approved). DESIGN.md: green is
-// reserved for verification — never decorative.
-export function VerifiedBadge({ overlay = false }: { overlay?: boolean }) {
-  return (
-    <Badge tone={overlay ? 'glass' : 'success'} icon={ShieldCheck} className={overlay ? 'text-success-deep' : ''}>
-      Verified by GHOR
-    </Badge>
-  );
-}
-
-export function PhoneVerifiedBadge() {
-  return (
-    <Badge tone="success" icon={BadgeCheck}>
-      Phone verified
-    </Badge>
-  );
-}
-
 export type ListingStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'rented';
 
 const STATUS: Record<ListingStatus, { tone: keyof typeof BADGE_TONES; label: string; icon: Icon }> = {
@@ -93,26 +189,6 @@ export function formatRent(n: number) {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
-// DESIGN.md: the rent is the one loud number. `lg` is reserved for listing detail.
-export function PriceTag({
-  amount,
-  size = 'md',
-  className,
-}: {
-  amount: number;
-  size?: 'sm' | 'md' | 'lg';
-  className?: string;
-}) {
-  const num = { sm: 'text-base', md: 'text-xl', lg: 'text-4xl' }[size];
-  const per = { sm: 'text-xs', md: 'text-sm', lg: 'text-base' }[size];
-  return (
-    <span className={cx('inline-flex items-baseline gap-0.5 font-display', className)}>
-      <span className={cx(num, 'font-bold tracking-tight text-ink')}>{formatRent(amount)}</span>
-      <span className={cx(per, 'font-medium text-muted')}>/month</span>
-    </span>
-  );
-}
-
 // ---------------------------------------------------------------------------------
 // Chip (filter / quick-filter)
 // ---------------------------------------------------------------------------------
@@ -136,15 +212,45 @@ export function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={cx(
-        'press inline-flex shrink-0 items-center gap-1.5 rounded-full border px-4 h-10 text-sm font-semibold transition-colors',
+        'press inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold transition-colors',
         active
           ? 'border-navy bg-navy text-white'
-          : 'border-hairline bg-white text-ink hover:border-ink/30',
+          : 'border-navy/[0.12] bg-white/70 text-body hover:border-navy/30 hover:bg-white',
         className,
       )}
     >
-      {IconCmp && <IconCmp size={16} aria-hidden />}
+      {IconCmp && <IconCmp size={15} aria-hidden />}
       {children}
+    </button>
+  );
+}
+
+// Round, icon-only action (close, share, back). Always needs an accessible label.
+export function IconButton({
+  icon: IconCmp,
+  label,
+  onClick,
+  tone = 'plain',
+  className,
+}: {
+  icon: Icon;
+  label: string;
+  onClick?: () => void;
+  tone?: 'plain' | 'solid';
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={cx(
+        'press inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors',
+        tone === 'solid' ? 'bg-white/95 text-navy shadow-lift hover:bg-white' : 'text-navy hover:bg-navy/[0.06]',
+        className,
+      )}
+    >
+      <IconCmp size={19} aria-hidden />
     </button>
   );
 }
@@ -165,10 +271,10 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={cx('flex items-end justify-between gap-4 mb-4', className)}>
+    <div className={cx('mb-5 flex items-end justify-between gap-4', className)}>
       <div className="min-w-0">
-        <h2 className="text-xl sm:text-2xl font-bold text-ink">{title}</h2>
-        {subtitle && <p className="text-sm text-muted mt-1">{subtitle}</p>}
+        <h2 className="font-display text-2xl font-bold tracking-[-0.025em] text-navy sm:text-[1.75rem]">{title}</h2>
+        {subtitle && <p className="mt-1 text-[15px] text-muted">{subtitle}</p>}
       </div>
       {action &&
         (action.href ? (
@@ -181,32 +287,6 @@ export function SectionHeader({
           </button>
         ))}
     </div>
-  );
-}
-
-export function IconTile({
-  icon: IconCmp,
-  tone = 'primary',
-  size = 'md',
-}: {
-  icon: Icon;
-  tone?: 'primary' | 'success' | 'warning' | 'danger' | 'navy' | 'cream';
-  size?: 'sm' | 'md' | 'lg';
-}) {
-  const tones = {
-    primary: 'bg-primary-light text-primary',
-    success: 'bg-success-pale text-success-deep',
-    warning: 'bg-warning-pale text-warning-deep',
-    danger: 'bg-destructive-pale text-destructive-pressed',
-    navy: 'bg-navy text-white',
-    cream: 'bg-cream-deep text-navy',
-  };
-  const box = { sm: 'w-9 h-9 rounded-xl', md: 'w-11 h-11 rounded-2xl', lg: 'w-16 h-16 rounded-3xl' }[size];
-  const icon = { sm: 18, md: 20, lg: 28 }[size];
-  return (
-    <span className={cx('inline-flex shrink-0 items-center justify-center', box, tones[tone])}>
-      <IconCmp size={icon} aria-hidden />
-    </span>
   );
 }
 
@@ -260,15 +340,15 @@ export function EmptyState({
           <IconCmp size={28} aria-hidden />
         </span>
       </div>
-      <h3 className="text-lg font-bold text-ink">{title}</h3>
-      {body && <p className="mt-1.5 max-w-sm text-sm leading-6 text-muted">{body}</p>}
+      <h3 className="font-display text-xl font-bold tracking-tight text-navy">{title}</h3>
+      {body && <p className="mt-2 max-w-md text-[15px] leading-6 text-muted">{body}</p>}
       {action &&
         (action.href ? (
-          <Link href={action.href} className="press mt-5 inline-flex items-center rounded-full bg-primary px-5 h-11 text-sm font-semibold text-white hover:bg-primary-pressed">
+          <Link href={action.href} className={cx(buttonClass('primary'), 'mt-6')}>
             {action.label}
           </Link>
         ) : (
-          <button onClick={action.onClick} className="press mt-5 inline-flex items-center rounded-full bg-primary px-5 h-11 text-sm font-semibold text-white hover:bg-primary-pressed">
+          <button onClick={action.onClick} className={cx(buttonClass('primary'), 'mt-6')}>
             {action.label}
           </button>
         ))}
@@ -282,15 +362,12 @@ export function Skeleton({ className }: { className?: string }) {
 
 export function SkeletonListingCard() {
   return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-card" aria-hidden>
-      <Skeleton className="aspect-[4/3] rounded-none" />
-      <div className="space-y-2.5 p-4">
-        <Skeleton className="h-5 w-3/4" />
+    <div aria-hidden>
+      <Skeleton className="aspect-[4/3] rounded-2xl" />
+      <div className="space-y-2.5 pt-3.5">
+        <Skeleton className="h-6 w-1/3" />
+        <Skeleton className="h-4 w-3/4" />
         <Skeleton className="h-4 w-1/2" />
-        <div className="flex gap-2 pt-1">
-          <Skeleton className="h-6 w-16 rounded-full" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
       </div>
     </div>
   );

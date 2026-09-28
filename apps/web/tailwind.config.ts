@@ -59,7 +59,11 @@ const config: Config = {
         soft: "0 18px 60px rgba(15, 23, 42, 0.10)",
         // DESIGN.md's Elevation & Depth: the two real system tiers above flat.
         card: "0 1px 2px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.08)",
-        sheet: "0 8px 24px rgba(15,23,42,0.16)"
+        sheet: "0 8px 24px rgba(15,23,42,0.16)",
+        // Redesign v2: lifted = hovered cards / sticky contact card; float = UI laid over
+        // photography on the landing page.
+        lift: "0 18px 40px -18px rgba(11,27,63,0.35)",
+        float: "0 30px 60px -24px rgba(11,27,63,0.45)"
       }
     }
   },

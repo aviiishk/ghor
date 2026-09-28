@@ -164,14 +164,32 @@ export class ChatService {
     // Fire-and-forget, same pattern as the listing-view event — must never block or
     // fail the send it's riding along on. This is the durable in-app record root
     // CLAUDE.md's notifications table describes.
-    this.prisma.notification
-      .create({
-        data: {
-          userId: recipientId,
-          type: 'new_message',
-          payload: { conversationId, listingId: conversation.listingId },
-        },
-      })
+    // The payload names the sender and the home so the notification centre can say who
+    // wrote about what (RC QA 2026-09-28) — payload is JSON, so no schema change.
+    Promise.all([
+      this.prisma.profile.findUnique({
+        where: { id: userId },
+        select: { fullName: true },
+      }),
+      this.prisma.listing.findUnique({
+        where: { id: conversation.listingId },
+        select: { title: true },
+      }),
+    ])
+      .then(([sender, listing]) =>
+        this.prisma.notification.create({
+          data: {
+            userId: recipientId,
+            type: 'new_message',
+            payload: {
+              conversationId,
+              listingId: conversation.listingId,
+              senderName: sender?.fullName ?? null,
+              listingTitle: listing?.title ?? null,
+            },
+          },
+        }),
+      )
       .catch(() => {});
 
     // Root CLAUDE.md §7.7: "reliable Expo push on every message... critical now that

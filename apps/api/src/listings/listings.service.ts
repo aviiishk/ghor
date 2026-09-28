@@ -218,6 +218,13 @@ export class ListingsService {
   // there are listings, so the UI never shows invented areas.
   // ---------------------------------------------------------------------------
 
+  // Same lookup create/update runs (listings are Guwahati-only at launch, root CLAUDE.md
+  // §2), so the owner's preview matches what renters will see. Never throws.
+  async geocodePreview(locality: string) {
+    if (locality.length < 2) return null;
+    return this.geocoding.geocode(locality, 'Guwahati', 'Assam');
+  }
+
   async popularLocalities(city = 'Guwahati', limit = 8) {
     const rows = await this.prisma.listing.findMany({
       where: { status: 'approved', city },
@@ -481,13 +488,15 @@ export class ListingsService {
     // same reasoning as the single-listing update() path above.
     const owners = await this.prisma.listing.findMany({
       where: { id: { in: ids } },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, title: true },
     });
     const result = await this.prisma.listing.updateMany({
       where: { id: { in: ids } },
       data: { status },
     });
-    owners.forEach((listing) => this.notifyOwner(listing.ownerId, listing.id, status));
+    owners.forEach((listing) =>
+      this.notifyOwner(listing.ownerId, listing.id, status, listing.title),
+    );
     return { updated: result.count };
   }
 
@@ -498,7 +507,13 @@ export class ListingsService {
   async update(userId: string, role: string, id: string, dto: UpdateListingDto) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      include: { institutions: { select: { institutionId: true } } },
+      include: {
+        institutions: { select: { institutionId: true } },
+        images: {
+          orderBy: { position: 'asc' },
+          select: { cloudinaryUrl: true },
+        },
+      },
     });
     if (!listing) throw new NotFoundException('Listing not found');
 
@@ -526,7 +541,8 @@ export class ListingsService {
     if (dto.status !== undefined) {
       data.status = this.resolveStatusTransition(listing.status, dto.status, isAdmin);
       if (data.status === 'pending') {
-        await this.assertPublishReady(id);
+        // Photos sent in this same request count (save-and-submit from Edit).
+        await this.assertPublishReady(id, dto.images?.length);
       }
     }
 
@@ -543,6 +559,19 @@ export class ListingsService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.images !== undefined) {
+        const ordered = [...dto.images].sort((a, b) => a.position - b.position);
+        await tx.listingImage.deleteMany({ where: { listingId: id } });
+        if (ordered.length) {
+          await tx.listingImage.createMany({
+            data: ordered.map((img, position) => ({
+              listingId: id,
+              cloudinaryUrl: img.cloudinaryUrl,
+              position,
+            })),
+          });
+        }
+      }
       if (dto.institutionIds !== undefined) {
         await tx.listingInstitution.deleteMany({ where: { listingId: id } });
         if (dto.institutionIds.length) {
@@ -563,19 +592,25 @@ export class ListingsService {
     // which don't need telling them something they just did). Fire-and-forget, same
     // pattern as the listing_view event and chat's new_message notification.
     if (isAdmin && (data.status === 'approved' || data.status === 'rejected')) {
-      this.notifyOwner(listing.ownerId, id, data.status);
+      this.notifyOwner(listing.ownerId, id, data.status, updated.title);
     }
 
     return updated;
   }
 
-  private notifyOwner(ownerId: string, listingId: string, status: 'approved' | 'rejected'): void {
+  private notifyOwner(
+    ownerId: string,
+    listingId: string,
+    status: 'approved' | 'rejected',
+    listingTitle: string,
+  ): void {
     this.prisma.notification
       .create({
         data: {
           userId: ownerId,
           type: status === 'approved' ? 'listing_approved' : 'listing_rejected',
-          payload: { listingId },
+          // Title included so an owner with several listings can tell which one.
+          payload: { listingId, listingTitle },
         },
       })
       .catch(() => {});
@@ -599,9 +634,24 @@ export class ListingsService {
   // can mark rented") and §6 ("only admin can change status"): both are true, scoped to
   // different transitions.
   private contentChanged(
-    listing: Prisma.ListingGetPayload<{ include: { institutions: { select: { institutionId: true } } } }>,
+    listing: Prisma.ListingGetPayload<{
+      include: {
+        institutions: { select: { institutionId: true } };
+        images: { select: { cloudinaryUrl: true } };
+      };
+    }>,
     dto: UpdateListingDto,
   ): boolean {
+    // New, removed or reordered photos are a content change too — otherwise an approved
+    // listing's photos could be swapped without going back through review.
+    if (dto.images !== undefined) {
+      const next = [...dto.images]
+        .sort((a, b) => a.position - b.position)
+        .map((i) => i.cloudinaryUrl)
+        .join('|');
+      const current = listing.images.map((i) => i.cloudinaryUrl).join('|');
+      if (next !== current) return true;
+    }
     const differs = <T>(next: T | undefined, current: T) =>
       next !== undefined && next !== current;
     if (
@@ -660,8 +710,13 @@ export class ListingsService {
     return requested as 'pending' | 'rented' | 'approved';
   }
 
-  private async assertPublishReady(listingId: string): Promise<void> {
-    const imageCount = await this.prisma.listingImage.count({ where: { listingId } });
+  private async assertPublishReady(
+    listingId: string,
+    incomingImageCount?: number,
+  ): Promise<void> {
+    const imageCount =
+      incomingImageCount ??
+      (await this.prisma.listingImage.count({ where: { listingId } }));
     if (imageCount < 3) {
       throw new BadRequestException('At least 3 photos are required to publish a listing');
     }

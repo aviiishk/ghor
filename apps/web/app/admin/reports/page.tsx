@@ -30,7 +30,7 @@ export default function AdminReportsPage() {
                   {CATEGORY_LABEL[report.reasonCategory] ?? report.reasonCategory}
                 </span>
                 <span className="text-muted-soft text-xs">
-                  {new Date(report.createdAt).toLocaleDateString()}
+                  {new Date(report.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               </div>
               <p className="text-ink font-semibold mb-1">{report.listing.title}</p>

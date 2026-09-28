@@ -47,7 +47,7 @@ export default function AdminReviewsPage() {
               <div className="flex items-center justify-between mb-2">
                 <RatingDisplay avgRating={review.rating} size="sm" />
                 <span className="text-muted-soft text-xs">
-                  {new Date(review.createdAt).toLocaleDateString()}
+                  {new Date(review.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               </div>
               <Link

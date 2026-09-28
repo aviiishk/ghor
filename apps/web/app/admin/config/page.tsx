@@ -18,7 +18,7 @@ export default function AdminConfigPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink mb-6">App Config</h1>
+      <h1 className="text-2xl font-bold text-ink mb-6">App config</h1>
       <p className="text-muted text-sm mb-6">
         Tunables like ad frequency, feed page size, and the report-revert threshold — editable
         here without a new deploy or app-store release.

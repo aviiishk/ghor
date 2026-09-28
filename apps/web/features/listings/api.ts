@@ -1,7 +1,8 @@
 // Calls apps/api's listings module via the /api/gateway proxy — same DTOs/response
 // shapes as apps/mobile/src/features/listings/api.ts, port kept 1:1 on purpose so the
 // two clients can't silently drift.
-import { apiRequest } from '@/lib/apiClient';
+import { ApiError, apiRequest } from '@/lib/apiClient';
+import { UploadError, type UploadSignature } from '@/lib/cloudinary';
 
 export type ListingStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'rented';
 export type PropertyType = 'room' | 'flat';
@@ -171,4 +172,28 @@ export async function updateListing(id: string, input: UpdateListingInput) {
 
 export async function deleteListing(id: string) {
   return apiRequest<void>(`/listings/${id}`, { method: 'DELETE' });
+}
+
+// Create-listing preview: the approximate point the server's geocoder will use for this
+// locality (null when it can't be placed — the listing still works in List view).
+export async function geocodePreview(locality: string) {
+  const res = await apiRequest<{ point: { latitude: number; longitude: number } | null }>(
+    `/listings/geocode-preview${toQueryString({ locality })}`,
+  );
+  return res.point;
+}
+
+// One short-lived Cloudinary signature per photo (apps/api POST /uploads/signature). A 503
+// means the API has no Cloudinary credentials — reported as configuration, never as a
+// problem with the user's photo.
+export async function getUploadSignature(): Promise<UploadSignature> {
+  try {
+    return await apiRequest<UploadSignature>('/uploads/signature', { method: 'POST' });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 503) throw new UploadError('Photo uploads are not configured.', 'config');
+    if (e instanceof ApiError && e.status === 429) throw new UploadError('You’ve added a lot of photos in the last hour. Please try again later.', 'file');
+    if (e instanceof ApiError && e.status >= 500) throw new UploadError('GHOR couldn’t prepare the upload. Retry in a moment.', 'server');
+    if (e instanceof TypeError) throw new UploadError('Connection lost while preparing the upload. Check your internet and retry.', 'network');
+    throw e;
+  }
 }

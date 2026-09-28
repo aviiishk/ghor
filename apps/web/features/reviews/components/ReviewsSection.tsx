@@ -5,6 +5,8 @@ import { RatingDisplay } from './RatingDisplay';
 import { ReviewCard } from './ReviewCard';
 import { WriteReviewDialog } from './WriteReviewDialog';
 import { useReviews } from '../hooks';
+import { Skeleton, buttonClass } from '@/components/ui';
+import { Star } from 'lucide-react';
 
 export function ReviewsSection({
   listingId,
@@ -23,16 +25,16 @@ export function ReviewsSection({
   const viewer = data?.pages[0]?.viewer;
 
   return (
-    <section className="mt-12 border-t border-hairline pt-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <section id="reviews" className="scroll-mt-24 border-t border-navy/[0.08] py-10">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-ink">Reviews</h2>
-          <RatingDisplay avgRating={avgRating} reviewCount={reviewCount} />
+          <h2 className="font-display text-[1.6rem] font-bold tracking-[-0.025em] text-navy">Reviews</h2>
+          {avgRating != null && <RatingDisplay avgRating={avgRating} reviewCount={reviewCount} />}
         </div>
         {viewer?.canReview && (
           <button
             onClick={() => setWriteOpen(true)}
-            className="border border-primary text-primary font-semibold rounded-full px-5 py-2.5"
+            className={buttonClass('secondary')}
           >
             Write a review
           </button>
@@ -43,11 +45,20 @@ export function ReviewsSection({
       </div>
 
       {isLoading ? (
-        <p className="text-muted">Loading reviews…</p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2" aria-busy="true">
+          <Skeleton className="h-32 rounded-2xl" />
+          <Skeleton className="h-32 rounded-2xl" />
+        </div>
       ) : reviews.length === 0 ? (
-        <p className="text-muted">
-          No reviews yet. People who&rsquo;ve messaged the owner about this listing can leave one.
-        </p>
+        <div className="flex items-start gap-4 rounded-2xl bg-white p-5 ring-1 ring-inset ring-navy/[0.08]">
+          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cream-deep text-navy">
+            <Star size={20} aria-hidden />
+          </span>
+          <p className="text-[15px] leading-6 text-body">
+            <strong className="block font-semibold text-ink">No reviews yet</strong>
+            Only people who&rsquo;ve messaged the owner about this listing can review it, so every review comes from a real enquiry.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {reviews.map((r) => (

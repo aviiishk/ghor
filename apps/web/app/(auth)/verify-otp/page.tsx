@@ -1,7 +1,9 @@
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { verifyPhoneOtp, sendPhoneOtp, getProfile } from '@/features/auth/api';
 import { Logo } from '@/components/logo';
 
@@ -9,9 +11,11 @@ const OTP_LENGTH = 6;
 const RESEND_SECONDS = 45;
 
 function VerifyOtpForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const phone = searchParams.get('phone') ?? '';
+  // Only same-site paths — never an open redirect to another origin.
+  const nextParam = searchParams.get('next');
+  const next = nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '/browse';
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,9 +37,14 @@ function VerifyOtpForm() {
       // Returning users (fullName already set) skip onboarding; first-time users don't —
       // same check as apps/mobile's verify-otp.tsx.
       const profile = await getProfile();
-      router.replace(profile.fullName ? '/browse' : '/onboarding');
+      // Crossing a session boundary is a full page load, not a client-side route change: the
+      // Next router may hold prefetches made while signed out (e.g. /browse prefetched from the
+      // landing page = a cached redirect to /sign-in), and the query cache holds the old
+      // session's data. Found in QA 2026-09-27: new owners were bounced to sign-in after
+      // onboarding because router.replace('/browse') replayed the stale prefetched redirect.
+      window.location.replace(profile.fullName ? next : `/onboarding${next !== '/browse' ? `?next=${encodeURIComponent(next)}` : ''}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Please try again');
+      setError(friendlyError(e, 'That code didn’t work. Check it and try again, or request a new one.'));
       setOtp('');
     } finally {
       setLoading(false);

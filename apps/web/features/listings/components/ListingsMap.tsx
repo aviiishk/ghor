@@ -77,15 +77,20 @@ export default function ListingsMap({
   pins,
   activeId,
   onSelect,
+  highlightId = null,
+  className = 'h-[70vh] min-h-[420px] rounded-2xl',
 }: {
   pins: MapPin[];
   activeId: string | null;
   onSelect: (id: string | null) => void;
+  /** A card hovered in the split-view list — its pin lights up without opening a preview. */
+  highlightId?: string | null;
+  className?: string;
 }) {
   const active = useMemo(() => pins.find((p) => p.id === activeId) ?? null, [pins, activeId]);
 
   return (
-    <div className="relative h-[70vh] min-h-[420px] rounded-2xl overflow-hidden border border-hairline">
+    <div className={`relative isolate overflow-hidden ring-1 ring-inset ring-navy/[0.08] ${className}`}>
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
@@ -98,42 +103,41 @@ export default function ListingsMap({
           <Marker
             key={pin.id}
             position={[pin.latitude, pin.longitude]}
-            icon={pinIcon(pin.rent, pin.id === activeId)}
-            zIndexOffset={pin.id === activeId ? 1000 : 0}
+            icon={pinIcon(pin.rent, pin.id === activeId || pin.id === highlightId)}
+            zIndexOffset={pin.id === activeId || pin.id === highlightId ? 1000 : 0}
             eventHandlers={{ click: () => onSelect(pin.id) }}
             title={`${pin.title}, ${formatRentShort(pin.rent)} per month`}
           />
         ))}
       </MapContainer>
 
-      {/* DESIGN.md `map-preview-card`: photo + title + price only. */}
+      {/* DESIGN.md `map-preview-card`: photo + price + title. */}
       {active && (
-        <div className="absolute bottom-4 left-4 right-4 sm:right-auto sm:w-80 z-[1000]">
-          <div className="relative bg-white rounded-2xl shadow-sheet overflow-hidden">
+        <div className="absolute bottom-4 left-4 right-4 z-[1000] sm:right-auto sm:w-[340px]">
+          <div className="relative overflow-hidden rounded-2xl bg-white shadow-float">
             <button
               onClick={() => onSelect(null)}
               aria-label="Close preview"
-              className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-white/90 flex items-center justify-center"
+              className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 shadow-sm"
             >
               <X size={16} className="text-ink" />
             </button>
             <Link href={`/listing/${active.id}`} className="flex">
-              <div className="w-28 shrink-0 bg-surface">
+              <div className="relative w-32 shrink-0 bg-cream-deep">
                 {active.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={active.imageUrl} alt="" className="w-full h-full object-cover" />
+                  <img src={active.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
                 ) : (
-                  <div className="w-full h-full min-h-24 flex items-center justify-center text-muted-soft text-xs">
-                    No photo
-                  </div>
+                  <div className="flex h-full min-h-24 items-center justify-center text-xs text-muted">No photo</div>
                 )}
               </div>
-              <div className="p-3 pr-10 min-w-0">
-                <p className="font-semibold text-ink truncate">{active.title}</p>
-                <p className="text-lg font-bold text-ink mt-1">
+              <div className="min-w-0 p-3.5 pr-10">
+                <p className="font-display text-xl font-bold leading-none text-navy">
                   ₹{active.rent.toLocaleString('en-IN')}
-                  <span className="text-xs font-medium text-muted">/mo</span>
+                  <span className="text-xs font-medium text-muted">/month</span>
                 </p>
+                <p className="mt-1.5 line-clamp-2 text-sm font-semibold text-ink">{active.title}</p>
+                <p className="mt-1 truncate text-xs text-muted">{active.locality} · approximate area</p>
               </div>
             </Link>
           </div>

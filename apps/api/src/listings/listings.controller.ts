@@ -51,6 +51,19 @@ export class ListingsController {
     return this.listings.popularLocalities(city || 'Guwahati');
   }
 
+  // Create-listing location step: resolves a locality exactly as saving would (same
+  // geocoder, cache and rate limit), so the owner previews the approximate area renters
+  // will see. Read-only; returns { point: { latitude, longitude } | null } (wrapped so
+  // the body is always JSON — a bare null serializes as an empty body). Before `:id`.
+  @Get('geocode-preview')
+  async geocodePreview(@Query('locality') locality?: string) {
+    return {
+      point: await this.listings.geocodePreview(
+        (locality ?? '').trim().slice(0, 100),
+      ),
+    };
+  }
+
   // Map view pins — same filters as the feed, whole filtered set, no pagination.
   // Registered before `:id` so "map" isn't parsed as a listing id.
   @Get('map')

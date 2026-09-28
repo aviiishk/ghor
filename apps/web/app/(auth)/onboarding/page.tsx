@@ -1,15 +1,15 @@
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { completeOnboarding } from '@/features/auth/api';
 import { Logo } from '@/components/logo';
 
 type Role = 'seeker' | 'owner';
 
 export default function OnboardingPage() {
-  const router = useRouter();
   const [name, setName] = useState('');
   const [role, setRole] = useState<Role>('seeker');
   const [loading, setLoading] = useState(false);
@@ -24,9 +24,11 @@ export default function OnboardingPage() {
     setError(null);
     try {
       await completeOnboarding({ fullName: name.trim(), role });
-      router.replace('/browse');
+      // Full load (see verify-otp): the session/role just changed. Same-site paths only.
+      const n = new URLSearchParams(window.location.search).get('next');
+      window.location.replace(n && n.startsWith('/') && !n.startsWith('//') ? n : '/browse');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Something went wrong');
+      setError(friendlyError(e, 'We couldn’t save your details. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -35,8 +37,8 @@ export default function OnboardingPage() {
   return (
     <div className="w-full max-w-sm">
       <Logo />
-      <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">Find your next room.</h1>
-      <p className="text-primary text-lg font-medium mb-8">Feel at home.</p>
+      <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">Welcome to GHOR</h1>
+      <p className="mb-8 mt-1 text-muted">Tell us who you are — you can list a place or find one.</p>
 
       <label className="block text-sm font-medium text-muted mb-3">I am…</label>
       <div className="flex flex-col gap-3 mb-6">

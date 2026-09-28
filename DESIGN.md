@@ -723,7 +723,7 @@ The founder judged the shipped UI "dull, blank, generic — a CRUD app, not a ma
 
 **Elevation:** still flat-by-default, but two additions: a soft "lifted" shadow (`0 18px 40px -18px rgba(11,27,63,.35)`) for hovered/featured cards and the sticky contact card, and frosted `glass-chip` overlays (white/85 + blur on web; solid white/92 on mobile — blur is costly on Android) for text laid over photography.
 
-**Components (single implementations):** `apps/web/components/ui` — `Badge`, `VerifiedBadge`, `StatusBadge` (replaces `StatusPill`; statuses read Live / In review / Needs changes / Draft / Rented), `PriceTag`, `Chip`, `SectionHeader`, `IconTile`, `Avatar` (deterministic initials — no profile photos exist), `EmptyState`, `Skeleton`, `SkeletonListingCard`. Mobile has `src/components/EmptyState.tsx`. Amenities are icon-led everywhere via `amenityIcon()` / `amenityLabel()`.
+**Components (single implementations):** `apps/web/components/ui` — `Button`/`ButtonLink`/`buttonClass`, `IconButton`, `PageHeader`, `Badge`, `StatusBadge` (replaces `StatusPill`; statuses read Live / In review / Needs changes / Draft / Rented), `Chip`, `SectionHeader`, `Avatar` (deterministic initials — no profile photos exist), `EmptyState`, `Skeleton`, `SkeletonListingCard`; `components/ui/overlay.tsx` — `Dialog` (sheet/modal with focus trap), `useFocusTrap`, `ToastProvider`/`useToast`. Listing pieces live in `features/listings/components` (`ListingCard`, `ListingDetailView`, `PhotoGallery`, `PhotoUploader`, `SearchBox`, `FiltersDialog`). Mobile has `src/components/EmptyState.tsx`. Amenities are icon-led everywhere via `amenityIcon()` / `amenityLabel()`.
 
 **Photography:** listing cards are 4:3 with overlays (type, "Verified", photo count, rent on a frosted chip, availability when known); detail uses a gapless mosaic (1 + up to 4) with a full-screen lightbox on web and a swipe strip + "1 / N" counter on phones. Landing imagery is cropped from the approved mockup renders in `/assets` (illustrative only, never presented as a live listing) — replace with real photography once owners onboard.
 
@@ -732,6 +732,17 @@ The founder judged the shipped UI "dull, blank, generic — a CRUD app, not a ma
 **Empty & loading states:** every list has a designed `EmptyState` (icon composition + human title + one line + next action) and a layout-matched skeleton — never a bare spinner or "No data found".
 
 **Honesty rule (enforced during the redesign):** no invented listings, ratings, testimonials, user counts or partner logos. Discovery sections (Popular areas, Recently added, Under ₹7,000) render only when real API data backs them. The previous landing page's fabricated social proof ("Trusted by…", 5 stars, "37 spots claimed", placeholder avatars) was removed.
+
+### Redesign v2 amendments (2026-09-27)
+
+Direction: *editorial + property + product + local*. Photography and rent lead; decorative UI follows.
+- **Cards are not boxes.** Listing cards are a rounded photo with the details set underneath (rent loud and navy, then title, locality, a dot-separated amenity line, trust line). Panels use `.surface` (white, hairline ring, 16px radius, no shadow); `shadow-lift` only for hover/sticky, `shadow-float` only for UI over photography.
+- **One button system** (`buttonClass`: primary / navy / secondary / ghost / destructive / light × sm / md / lg) and one page title treatment (`PageHeader`).
+- **Status/type grammar:** property type as an uppercase navy tag on photos; green only for verification.
+- **Navigation:** desktop header with labelled links; phones get a bottom tab bar, hidden wherever a screen owns a fixed action bar.
+- **Layout rule:** every responsive grid declares a base `grid-cols-1` (minmax(0,1fr)) — an implicit `auto` column grows to fit truncated text and overflows phones.
+- **Landing imagery:** licensed stock interiors, always labelled "Example listing" / "Illustrative"; example listings are never presented as inventory. Replace with real Guwahati homes once owners onboard.
+- **Motion:** landing only, GSAP behind `prefers-reduced-motion`; any animation that shows a number or hides content has a force-finish timeout.
 
 ## Known Gaps
 

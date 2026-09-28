@@ -14,9 +14,10 @@ export const listingsKeys = {
   localities: ['listings', 'localities'] as const,
 };
 
-export function useBrowseListings(filters: BrowseFilters) {
+export function useBrowseListings(filters: BrowseFilters, enabled = true) {
   return useInfiniteQuery({
     queryKey: listingsKeys.browse(filters),
+    enabled,
     queryFn: ({ pageParam }) => api.browseListings({ ...filters, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -99,4 +100,34 @@ export function useDeleteListing() {
     mutationFn: (id: string) => api.deleteListing(id),
     onSuccess: invalidate,
   });
+}
+
+export function useGeocodePreview(locality: string) {
+  return useQuery({
+    queryKey: ['listings', 'geocode-preview', locality.trim().toLowerCase()],
+    queryFn: () => api.geocodePreview(locality.trim()),
+    enabled: locality.trim().length >= 3,
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+}
+
+// Pre-flight for the photo step: asks for a signature (uploads nothing) so a missing
+// server configuration is reported before the owner picks any photos.
+export function useUploadsAvailable() {
+  const q = useQuery({
+    queryKey: ['uploads', 'available'],
+    queryFn: async () => {
+      try {
+        await api.getUploadSignature();
+        return true;
+      } catch (e) {
+        if (e instanceof Error && e.name === 'UploadError' && (e as { kind?: string }).kind === 'config') return false;
+        throw e;
+      }
+    },
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+  return { unavailable: q.data === false, checking: q.isLoading };
 }

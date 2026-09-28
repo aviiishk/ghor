@@ -65,7 +65,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3 text-muted">{user._count.listings}</td>
                   <td className="px-4 py-3 text-muted whitespace-nowrap">
-                    {new Date(user.createdAt).toLocaleDateString()}
+                    {new Date(user.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-4 py-3">
                     {user.banned ? (

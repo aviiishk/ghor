@@ -1,4 +1,5 @@
 import { RatingDisplay } from './RatingDisplay';
+import { Avatar } from '@/components/ui';
 import type { Review } from '../api';
 
 export function timeAgo(iso: string): string {
@@ -15,15 +16,16 @@ export function timeAgo(iso: string): string {
 // DESIGN.md `review-card`: this review's own rating (not the aggregate), comment, date.
 export function ReviewCard({ review }: { review: Review }) {
   return (
-    <div className="bg-white border border-hairline rounded-2xl p-4">
-      <div className="flex items-center justify-between gap-3 mb-1">
-        <span className="font-semibold text-ink truncate">
-          {review.reviewer.fullName ?? 'GHOR user'}
-        </span>
-        <span className="text-xs text-muted shrink-0">{timeAgo(review.createdAt)}</span>
+    <div className="rounded-2xl bg-white p-5 ring-1 ring-inset ring-navy/[0.08]">
+      <div className="flex items-center gap-3">
+        <Avatar name={review.reviewer.fullName} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-ink">{review.reviewer.fullName ?? 'GHOR user'}</p>
+          <p className="text-xs text-muted">{timeAgo(review.createdAt)}</p>
+        </div>
+        <RatingDisplay avgRating={review.rating} size="sm" />
       </div>
-      <RatingDisplay avgRating={review.rating} size="sm" />
-      {review.comment && <p className="text-sm text-ink leading-6 mt-2">{review.comment}</p>}
+      {review.comment && <p className="mt-3 text-[15px] leading-6 text-body">{review.comment}</p>}
     </div>
   );
 }
