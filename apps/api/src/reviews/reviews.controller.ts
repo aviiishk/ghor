@@ -3,7 +3,7 @@ import {
   Controller,
   Get,
   Param,
-  Patch,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -11,17 +11,14 @@ import {
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ListReviewsDto } from './dto/list-reviews.dto';
-import {
-  AdminListReviewsDto,
-  SetReviewHiddenDto,
-} from './dto/admin-reviews.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
+import { hasPermission } from '../auth/principal';
 
 // Nested under listings/:listingId — two path segments after "listings", so it never
-// collides with ListingsController's single-segment `:id` routes.
+// collides with ListingsController's single-segment `:id` routes. Admin review moderation
+// lives at /admin/reviews (console) and /legacy-admin/reviews (legacy web admin).
 @Controller('listings/:listingId/reviews')
 @UseGuards(JwtAuthGuard)
 export class ReviewsController {
@@ -32,12 +29,12 @@ export class ReviewsController {
   @Get()
   list(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('listingId') listingId: string,
+    @Param('listingId', ParseUUIDPipe) listingId: string,
     @Query() query: ListReviewsDto,
   ) {
     return this.reviews.list(
       user.userId,
-      user.role,
+      hasPermission(user, 'listings.review'),
       listingId,
       query.cursor,
       query.limit,
@@ -47,25 +44,9 @@ export class ReviewsController {
   @Post()
   create(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('listingId') listingId: string,
+    @Param('listingId', ParseUUIDPipe) listingId: string,
     @Body() dto: CreateReviewDto,
   ) {
-    return this.reviews.create(user.userId, user.role, listingId, dto);
-  }
-}
-
-@Controller('admin/reviews')
-@UseGuards(JwtAuthGuard, AdminGuard)
-export class AdminReviewsController {
-  constructor(private readonly reviews: ReviewsService) {}
-
-  @Get()
-  list(@Query() query: AdminListReviewsDto) {
-    return this.reviews.adminList(query.hidden);
-  }
-
-  @Patch(':id')
-  setHidden(@Param('id') id: string, @Body() dto: SetReviewHiddenDto) {
-    return this.reviews.setHidden(id, dto.hidden);
+    return this.reviews.create(user.userId, hasPermission(user, 'listings.review'), listingId, dto);
   }
 }

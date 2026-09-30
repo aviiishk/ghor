@@ -1,0 +1,3 @@
+# Playwright artifacts (and the test-only OTP sink under test-results/)
+test-results/
+playwright-report/

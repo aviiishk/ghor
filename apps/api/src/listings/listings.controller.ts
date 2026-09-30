@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -14,9 +15,8 @@ import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { BrowseListingsDto } from './dto/browse-listings.dto';
-import { BulkUpdateListingsDto } from './dto/bulk-update-listings.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
+import { hasPermission } from '../auth/principal';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 
@@ -71,55 +71,37 @@ export class ListingsController {
     return this.listings.findMapPins(query);
   }
 
-  @Post('admin/geocode-backfill')
-  @UseGuards(AdminGuard)
-  backfillGeocoding() {
-    return this.listings.backfillGeocoding();
-  }
-
-  // Admin moderation queue (root CLAUDE.md §14.10) — all `pending` listings across every
-  // owner, oldest first. Distinct path shape from `:id` (two segments, not one), so this
-  // doesn't need to be registered before it to avoid a route collision.
-  @Get('admin/queue')
-  @UseGuards(AdminGuard)
-  findPendingQueue() {
-    return this.listings.findPendingQueue();
-  }
-
-  @Post('admin/bulk-status')
-  @UseGuards(AdminGuard)
-  bulkStatus(@Body() dto: BulkUpdateListingsDto) {
-    return this.listings.bulkSetStatus(dto.ids, dto.status);
-  }
-
+  // Admin moderation routes moved to /admin/listings/* (console) and /legacy-admin/*
+  // (legacy web admin) — Phase 0, 2026-09-29. Everything below is owner/seeker-facing;
+  // `staff` only widens READ visibility for people holding listings.review.
   @Get(':id')
-  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.listings.findOne(user.userId, user.role, id);
+  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.listings.findOne(user.userId, hasPermission(user, 'listings.review'), id);
   }
 
   // Owner-only per-listing stats (404 for anyone else).
   @Get(':id/insights')
-  getInsights(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.listings.getInsights(user.userId, user.role, id);
+  getInsights(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.listings.getInsights(user.userId, hasPermission(user, 'listings.review'), id);
   }
 
   @Get(':id/similar')
-  findSimilar(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.listings.findSimilar(user.userId, user.role, id);
+  findSimilar(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.listings.findSimilar(user.userId, hasPermission(user, 'listings.review'), id);
   }
 
   @Patch(':id')
   update(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateListingDto,
   ) {
-    return this.listings.update(user.userId, user.role, id, dto);
+    return this.listings.update(user, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.listings.remove(user.userId, user.role, id);
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.listings.remove(user, id);
   }
 }

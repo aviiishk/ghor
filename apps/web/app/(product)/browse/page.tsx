@@ -211,7 +211,7 @@ export default function BrowsePage() {
             />
           </div>
           <ul className="no-scrollbar -mx-4 mt-4 flex gap-x-5 overflow-x-auto whitespace-nowrap px-4 text-[13px] font-medium text-body sm:mx-0 sm:mt-5 sm:flex-wrap sm:gap-y-2 sm:px-0 sm:text-sm">
-            <li className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-success-deep" aria-hidden /> Every listing reviewed by GHOR</li>
+            <li className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-success-deep" aria-hidden /> Every listing checked by GHOR</li>
             <li className="inline-flex items-center gap-2"><IndianRupee size={16} className="text-primary" aria-hidden /> No brokerage, no viewing fee</li>
             <li className="inline-flex items-center gap-2"><MessageCircle size={16} className="text-primary" aria-hidden /> Chat with the owner directly</li>
           </ul>

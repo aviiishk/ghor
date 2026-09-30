@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { BadgeCheck, BedDouble, Building2, CalendarDays, IndianRupee, MapPin, ShieldCheck, Wallet } from 'lucide-react';
+import { BadgeCheck, BedDouble, Building2, CalendarDays, IndianRupee, MapPin, ShieldCheck, Wallet, Zap } from 'lucide-react';
+import type { ApprovalInfo } from '../approval';
 import { amenityIcon, amenityLabel } from '../amenities';
 import { cx, formatRent } from '@/components/ui';
 
@@ -29,7 +30,7 @@ export function ListingHeadline({
   propertyType,
   locality,
   city,
-  verified,
+  approval,
   propertyVerified,
   rating,
 }: {
@@ -37,7 +38,7 @@ export function ListingHeadline({
   propertyType: 'room' | 'flat';
   locality: string;
   city: string;
-  verified: boolean;
+  approval?: ApprovalInfo | null;
   propertyVerified?: boolean;
   rating?: ReactNode;
 }) {
@@ -45,9 +46,12 @@ export function ListingHeadline({
     <div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-md bg-navy px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-white">{propertyType}</span>
-        {verified && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-success-pale px-2.5 py-1 text-xs font-bold text-success-deep" title="Reviewed and approved by GHOR">
-            <ShieldCheck size={13} strokeWidth={2.5} aria-hidden /> Verified by GHOR
+        {approval && (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${approval.automatic ? 'bg-primary-light text-navy' : 'bg-success-pale text-success-deep'}`}
+            title={approval.description}
+          >
+            {approval.automatic ? <Zap size={13} strokeWidth={2.5} aria-hidden /> : <ShieldCheck size={13} strokeWidth={2.5} aria-hidden />} {approval.label}
           </span>
         )}
         {propertyVerified && (

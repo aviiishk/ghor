@@ -49,7 +49,7 @@ export class ChatService {
   async getOrCreateConversation(seekerId: string, listingId: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      select: { id: true, ownerId: true, status: true },
+      select: { id: true, ownerId: true, status: true, pausedAt: true, deletedAt: true },
     });
     if (!listing) throw new NotFoundException('Listing not found');
     if (listing.ownerId === seekerId) {
@@ -67,7 +67,9 @@ export class ChatService {
     // ... but a NEW conversation needs a live listing (code review 2026-09-26): before,
     // anyone holding a draft/pending/rejected listing's id could open a thread — which
     // returns the listing's details — and message its owner. 404, not 403, like findOne().
-    if (listing.status !== 'approved') throw new NotFoundException('Listing not found');
+    if (listing.status !== 'approved' || listing.pausedAt || listing.deletedAt) {
+      throw new NotFoundException('Listing not found');
+    }
 
     return this.prisma.conversation.create({
       data: { listingId, seekerId, ownerId: listing.ownerId },

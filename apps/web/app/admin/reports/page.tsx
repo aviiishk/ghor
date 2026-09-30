@@ -36,7 +36,7 @@ export default function AdminReportsPage() {
               <p className="text-ink font-semibold mb-1">{report.listing.title}</p>
               <p className="text-muted text-sm mb-3">{report.reason}</p>
               <p className="text-muted-soft text-xs mb-3">
-                Reported by {report.reporter.fullName ?? report.reporter.phone ?? 'a user'}
+                Reported by {report.reporter.fullName ?? 'a user'}
               </p>
               <div className="flex gap-2">
                 <button

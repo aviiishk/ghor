@@ -245,7 +245,7 @@ export function Landing() {
               <div className="absolute inset-0 bg-gradient-to-t from-navy/80 via-navy/5 to-navy/20" />
               <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-2">
                 <span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-success-deep shadow-sm">
-                  <ShieldCheck size={14} aria-hidden /> Verified by GHOR
+                  <ShieldCheck size={14} aria-hidden /> Approved by GHOR
                 </span>
               </div>
               <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-7">
@@ -610,7 +610,7 @@ function DiscoverySection() {
                 <div className="relative aspect-[4/3] overflow-hidden rounded-2xl">
                   <Image src={e.img} alt="" fill sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]" />
                   <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-success-deep shadow-sm">
-                    <ShieldCheck size={13} aria-hidden /> Verified
+                    <ShieldCheck size={13} aria-hidden /> Approved
                   </span>
                   <div className="absolute bottom-3 left-3 flex gap-1.5">
                     <span className="rounded-md bg-navy px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">{e.type}</span>

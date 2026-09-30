@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
-import { PushModule } from '../push/push.module';
 import { GeocodingModule } from '../geocoding/geocoding.module';
 
 @Module({
-  imports: [PushModule, GeocodingModule],
+  imports: [GeocodingModule],
   controllers: [ListingsController],
   providers: [ListingsService],
+  exports: [ListingsService],
 })
 export class ListingsModule {}

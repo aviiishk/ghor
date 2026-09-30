@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LISTING_INCLUDE } from '../listings/listings.service';
+import { PUBLIC_LISTING_SELECT, presentListing } from '../listings/listing-shapes';
 
 // Below this many recent inquiry threads, response stats are too noisy to show ("0%
 // response rate" off one unanswered message would be unfair to a new owner).
@@ -29,18 +29,20 @@ export class OwnersService {
         phoneVerified: true,
         lastActiveAt: true,
         idVerificationStatus: true,
+        deletedAt: true,
       },
     });
-    // Banned owners and people who have never listed anything aren't browsable "hosts".
-    if (!profile || profile.banned)
+    // Banned or deleted owners and people who have never listed anything aren't
+    // browsable "hosts".
+    if (!profile || profile.banned || profile.deletedAt)
       throw new NotFoundException('Owner not found');
 
     const [listings, ratedListings, responseStats] = await Promise.all([
       this.prisma.listing.findMany({
-        where: { ownerId, status: 'approved' },
+        where: { ownerId, status: 'approved', pausedAt: null, deletedAt: null },
         orderBy: { createdAt: 'desc' },
         take: 50,
-        include: LISTING_INCLUDE,
+        select: PUBLIC_LISTING_SELECT,
       }),
       // Rented listings still carry real reviews — include them in the reputation.
       this.prisma.listing.findMany({
@@ -86,7 +88,7 @@ export class OwnersService {
       avgRating,
       reviewCount,
       ...responseStats,
-      listings,
+      listings: listings.map(presentListing),
     };
   }
 

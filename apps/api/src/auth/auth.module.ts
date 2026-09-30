@@ -4,6 +4,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { OtpService } from './otp.service';
+import { DevLogSmsSender, SMS_SENDER } from './sms-sender';
 
 @Module({
   imports: [
@@ -14,7 +16,7 @@ import { JwtStrategy } from './jwt.strategy';
     JwtModule.register({}),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  providers: [AuthService, JwtStrategy, OtpService, { provide: SMS_SENDER, useClass: DevLogSmsSender }],
+  exports: [AuthService, OtpService],
 })
 export class AuthModule {}

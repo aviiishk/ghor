@@ -35,10 +35,6 @@ export default function SignInPage() {
     }
   }
 
-  function handleGoogle() {
-    setError('Google sign-in isn’t available yet — please continue with your mobile number.');
-  }
-
   return (
     <div className="w-full max-w-sm">
       <Logo />
@@ -70,19 +66,6 @@ export default function SignInPage() {
         className="w-full flex items-center justify-center bg-primary text-white font-semibold rounded-full py-4 mb-6 disabled:opacity-70"
       >
         {loading ? 'Sending…' : 'Continue →'}
-      </button>
-
-      <div className="flex items-center mb-6">
-        <div className="flex-1 h-px bg-hairline" />
-        <span className="mx-4 text-muted text-sm">Or continue with</span>
-        <div className="flex-1 h-px bg-hairline" />
-      </div>
-
-      <button
-        onClick={handleGoogle}
-        className="w-full flex items-center justify-center border border-hairline text-ink font-medium rounded-full py-4"
-      >
-        Continue with Google
       </button>
 
       <p className="text-xs text-muted text-center mt-8">

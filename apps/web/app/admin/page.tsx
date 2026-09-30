@@ -105,19 +105,30 @@ export default function AdminListingsQueuePage() {
   // Rejecting is consequential (the owner is notified, the listing leaves the queue) and
   // there's no undo — it always goes through a confirmation. Approving is one click.
   const [confirmReject, setConfirmReject] = useState<string[] | null>(null);
+  // The API requires a reason on every moderation decision (shown to the owner on a
+  // rejection and kept in the audit log).
+  const [rejectReason, setRejectReason] = useState('');
 
   const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   async function decide(ids: string[], status: 'approved' | 'rejected') {
     if (!ids.length) return;
+    const reason = status === 'approved' ? 'Reviewed and approved in the legacy admin console' : rejectReason.trim();
     try {
-      await bulkSet.mutateAsync({ ids, status });
-      setSelected((prev) => prev.filter((id) => !ids.includes(id)));
-      const n = ids.length === 1 ? 'Listing' : `${ids.length} listings`;
-      toast(status === 'approved' ? `${n} approved — now live in Browse. The owner was notified.` : `${n} rejected. The owner was notified.`);
+      const res = await bulkSet.mutateAsync({ ids, status, reason });
+      const done = res.results.filter((r) => r.result === 'ok').map((r) => r.id);
+      setSelected((prev) => prev.filter((id) => !done.includes(id)));
+      const n = done.length === 1 ? 'Listing' : `${done.length} listings`;
+      if (done.length) {
+        toast(status === 'approved' ? `${n} approved — now live in Browse. The owner was notified.` : `${n} rejected. The owner was notified.`);
+      }
+      if (res.failed) {
+        toast(`${res.failed} couldn’t be updated (already decided, changed by the owner, or missing photos). Refresh the queue.`, 'error');
+      }
     } catch (e: unknown) {
       toast(friendlyError(e, 'That didn’t go through. Please try again.'), 'error');
     } finally {
       setConfirmReject(null);
+      setRejectReason('');
     }
   }
   const rejectTitle = (ids: string[]) =>
@@ -180,12 +191,23 @@ export default function AdminListingsQueuePage() {
         footer={
           <>
             <button onClick={() => setConfirmReject(null)} disabled={bulkSet.isPending} className={buttonClass('ghost')}>Cancel</button>
-            <button onClick={() => confirmReject && decide(confirmReject, 'rejected')} disabled={bulkSet.isPending} className={buttonClass('destructive')}>
+            <button onClick={() => confirmReject && decide(confirmReject, 'rejected')} disabled={bulkSet.isPending || rejectReason.trim().length < 3} className={buttonClass('destructive')}>
               {bulkSet.isPending ? 'Rejecting…' : 'Reject'}
             </button>
           </>
         }
-      />
+      >
+        <label className="block text-sm font-semibold text-ink" htmlFor="reject-reason">Reason (sent to the owner)</label>
+        <textarea
+          id="reject-reason"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          maxLength={500}
+          rows={3}
+          placeholder="e.g. Photos don’t show the room being offered"
+          className="mt-2 w-full rounded-xl border border-hairline px-3 py-2 text-sm"
+        />
+      </Dialog>
     </div>
   );
 }
