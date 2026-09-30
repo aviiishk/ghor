@@ -34,6 +34,10 @@ export type Listing = {
   availableFrom: string | null;
   amenities: Record<string, boolean>;
   status: ListingStatus;
+  // P0-11: how it was approved (see features/listings/approval.ts). Optional so older
+  // cached payloads still type-check.
+  approvalSource?: 'manual' | 'automatic_5min' | 'automatic_verified' | null;
+  postReviewStatus?: 'pending' | 'confirmed' | 'escalated' | null;
   propertyVerified: boolean;
   latitude: number | null;
   longitude: number | null;

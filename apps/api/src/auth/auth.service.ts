@@ -9,23 +9,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
-import * as bcrypt from 'bcrypt';
-import { createHash, randomInt, randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Profile } from '@prisma/client';
 import { OnboardingDto } from './dto/onboarding.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { EventsService } from '../events/events.service';
-
-const OTP_LENGTH = 6;
-const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const OTP_RESEND_COOLDOWN_MS = 60 * 1000; // 1 minute
-// Security review 2026-09-26: the 60s cooldown alone allowed ~1,440 SMS per number per
-// day (SMS pumping runs up the SMS bill once a real provider is wired) and a fresh set
-// of 5 guesses every minute. Cap sends per number per rolling 24h. Per-IP limiting
-// belongs at the hosting edge (every web request arrives via the BFF's single IP).
-const OTP_DAILY_LIMIT = 10;
-const OTP_MAX_ATTEMPTS = 5;
+import { OtpService } from './otp.service';
+import { AuditService } from '../audit/audit.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -62,6 +53,8 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly events: EventsService,
+    private readonly otp: OtpService,
+    private readonly audit: AuditService,
   ) {
     this.googleClient = new OAuth2Client(
       this.config.get<string>('GOOGLE_CLIENT_ID'),
@@ -107,7 +100,6 @@ export class AuthService {
         data: { googleId: payload.sub, fullName: payload.name },
       });
     }
-    profile = await this.promoteIfBootstrapAdmin(profile);
     if (profile.banned) {
       throw new UnauthorizedException('This account has been banned');
     }
@@ -120,101 +112,12 @@ export class AuthService {
   // ---------------------------------------------------------------------------
 
   async sendOtp(phone: string): Promise<{ sent: true }> {
-    const recent = await this.prisma.phoneOtp.findFirst({
-      where: { phone },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (
-      recent &&
-      Date.now() - recent.createdAt.getTime() < OTP_RESEND_COOLDOWN_MS
-    ) {
-      throw new BadRequestException(
-        'Please wait before requesting another code',
-      );
-    }
-
-    const sentToday = await this.prisma.phoneOtp.count({
-      where: {
-        phone,
-        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-      },
-    });
-    if (sentToday >= OTP_DAILY_LIMIT) {
-      throw new BadRequestException(
-        'Too many codes requested for this number today. Try again tomorrow.',
-      );
-    }
-
-    const smsApiUrl = this.config.get<string>('SMS_API_URL');
-    // Code review 2026-09-26: without an SMS provider the dev fallback below logs the
-    // code in plain text — in production that means every login code in the server
-    // logs and no SMS sent. Refuse instead of silently doing that.
-    if (!smsApiUrl && process.env.NODE_ENV === 'production') {
-      throw new ServiceUnavailableException(
-        'Phone login is temporarily unavailable',
-      );
-    }
-
-    const code = randomInt(0, 10 ** OTP_LENGTH)
-      .toString()
-      .padStart(OTP_LENGTH, '0');
-    const codeHash = await bcrypt.hash(code, 10);
-    await this.prisma.phoneOtp.create({
-      data: { phone, codeHash, expiresAt: new Date(Date.now() + OTP_TTL_MS) },
-    });
-
-    if (smsApiUrl) {
-      // Real SMS sending isn't implemented yet — no bulk SMS API credentials exist (root
-      // CLAUDE.md §5/§12). Wire the actual HTTP call here once the founder provides them;
-      // don't build against a guessed provider API shape in the meantime.
-      throw new Error('SMS_API_URL is set but sending is not implemented yet');
-    }
-    // Dev fallback: log the code server-side, never return it in the API response.
-    this.logger.warn(
-      `[DEV-ONLY, no SMS_API_URL configured] OTP for ${phone}: ${code}`,
-    );
-
+    await this.otp.send(phone);
     return { sent: true };
   }
 
   async verifyOtp(phone: string, code: string): Promise<TokenPair> {
-    const record = await this.prisma.phoneOtp.findFirst({
-      where: { phone },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!record) {
-      throw new UnauthorizedException('No code was requested for this number');
-    }
-    if (record.expiresAt < new Date()) {
-      throw new UnauthorizedException('Code has expired, request a new one');
-    }
-    // Claim an attempt BEFORE comparing, atomically (code review 2026-09-26): the old
-    // read-check-compare-increment let N parallel guesses all pass the `attempts < 5`
-    // check first, making brute-forcing a victim's code practical. Now each guess must
-    // win a conditional increment; the 6th concurrent guess gets count 0 and stops here.
-    const claimed = await this.prisma.phoneOtp.updateMany({
-      where: { id: record.id, attempts: { lt: OTP_MAX_ATTEMPTS } },
-      data: { attempts: { increment: 1 } },
-    });
-    if (claimed.count === 0) {
-      throw new UnauthorizedException(
-        'Too many incorrect attempts, request a new code',
-      );
-    }
-
-    const valid = await bcrypt.compare(code, record.codeHash);
-    if (!valid) {
-      throw new UnauthorizedException('Incorrect code');
-    }
-    // Consume atomically too: two parallel requests with the right code can't both log in.
-    const consumed = await this.prisma.phoneOtp.deleteMany({
-      where: { id: record.id },
-    });
-    if (consumed.count === 0) {
-      throw new UnauthorizedException(
-        'Code has already been used, request a new one',
-      );
-    }
+    await this.otp.verifyAndConsume(phone, code);
 
     let profile = await this.prisma.profile.findUnique({ where: { phone } });
     if (!profile) {
@@ -227,7 +130,9 @@ export class AuthService {
         data: { phoneVerified: true },
       });
     }
-    profile = await this.promoteIfBootstrapAdmin(profile);
+    // No admin promotion here any more (Phase 0, 2026-09-29): ADMIN_PHONES used to promote
+    // silently on every marketplace login. It is now an explicit, audited break-glass step
+    // on the admin-console login only (AdminAuthService.activateBreakGlass).
     if (profile.banned) {
       throw new UnauthorizedException('This account has been banned');
     }
@@ -239,34 +144,6 @@ export class AuthService {
   // First-admin bootstrap
   // ---------------------------------------------------------------------------
 
-  // Closes the "no real path to a first admin account" gap: root CLAUDE.md's
-  // role-escalation guard (OnboardingDto structurally blocks 'admin') is correct and
-  // stays as-is — this doesn't weaken it. `ADMIN_PHONES` is deploy-time config (an env
-  // var only whoever controls the server's environment can set), never something a
-  // request body or client input can influence, so it can't be exploited the way a
-  // user-writable `role` field could be. Runs on every phone-OTP login (not just the
-  // first), so adding a phone to the list promotes that account on its *next* login,
-  // without needing a redeploy timed exactly right.
-  private async promoteIfBootstrapAdmin(profile: Profile): Promise<Profile> {
-    if (profile.role === 'admin' || !profile.phone) return profile;
-
-    const configured = this.config.get<string>('ADMIN_PHONES', '');
-    const adminPhones = configured
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean);
-
-    if (!adminPhones.includes(profile.phone)) return profile;
-
-    this.logger.warn(
-      `Promoting ${profile.phone} to admin via ADMIN_PHONES bootstrap`,
-    );
-    return this.prisma.profile.update({
-      where: { id: profile.id },
-      data: { role: 'admin' },
-    });
-  }
-
   // ---------------------------------------------------------------------------
   // Token issuance / refresh / logout
   // ---------------------------------------------------------------------------
@@ -275,14 +152,16 @@ export class AuthService {
     // SHA-256, not bcrypt: refresh tokens are high-entropy signed JWTs, not low-entropy
     // user-chosen secrets — a fast deterministic hash is the correct, standard choice here
     // (and it's what makes an exact-match DB lookup on refresh possible at all; bcrypt's
-    // per-call salt would rule that out). bcrypt stays reserved for the OTP code above,
+    // per-call salt would rule that out). bcrypt stays reserved for the OTP code (OtpService),
     // which is exactly the low-entropy case it's designed for.
     return createHash('sha256').update(token).digest('hex');
   }
 
   private async issueTokens(profile: Profile): Promise<TokenPair> {
     const accessToken = this.jwt.sign(
-      { sub: profile.id, role: profile.role },
+      // aud=user: admin-console tokens (aud=admin, different secret) and user tokens are
+      // mutually rejected — JwtStrategy refuses anything but a user-audience token.
+      { sub: profile.id, role: profile.role, aud: 'user' },
       {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: parseExpiryToSeconds(
@@ -348,7 +227,7 @@ export class AuthService {
     const profile = await this.prisma.profile.findUnique({
       where: { id: payload.sub },
     });
-    if (!profile || profile.banned) {
+    if (!profile || profile.banned || profile.deletedAt) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
@@ -386,8 +265,8 @@ export class AuthService {
       where: { id: userId },
     });
 
-    // But an already-admin caller going through onboarding (e.g. right after an
-    // ADMIN_PHONES bootstrap promotion during their first verifyOtp()) must not be
+    // But an already-admin caller going through onboarding (profiles.role = 'admin' is the
+    // legacy admin flag, kept in sync with admin_users by AdminAccountsService) must not be
     // silently demoted back to whatever seeker/owner the onboarding form submits —
     // onboarding is "which side of the marketplace are you," not a role reset. Bug
     // found live 2026-08-19: promote via ADMIN_PHONES, then complete onboarding (which
@@ -453,8 +332,59 @@ export class AuthService {
         'This account is suspended. Contact support to delete it.',
       );
     }
-    await this.prisma.profile.delete({ where: { id: userId } });
-    this.logger.log(`Account deleted: ${userId}`);
+    // Admin accounts carry audit accountability; they are disabled through the admin
+    // console, never self-deleted (the admin_users FK is also ON DELETE RESTRICT).
+    const admin = await this.prisma.adminUser.findUnique({ where: { profileId: userId } });
+    if (admin) {
+      throw new ForbiddenException(
+        'Admin accounts cannot be deleted from the app. Contact a GHOR super admin.',
+      );
+    }
+    // P0-10: anonymise, never hard-delete. Personal data (name, phone, Google id, push
+    // tokens, notification inbox, ID-document reference) is removed; the account's
+    // listings are archived; everything other people or trust & safety rely on (their
+    // conversations and messages, reports, reviews, moderation and audit history) stays.
+    // The phone/Google id are freed, so signing up again creates a brand-new profile.
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const archived = await tx.listing.updateMany({
+        where: { ownerId: userId, deletedAt: null },
+        data: {
+          deletedAt: now,
+          autoApproveAt: null,
+          claimedById: null,
+          claimedAt: null,
+          claimExpiresAt: null,
+          version: { increment: 1 },
+        },
+      });
+      await tx.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      await tx.pushToken.deleteMany({ where: { userId } });
+      await tx.notification.deleteMany({ where: { userId } });
+      await tx.profile.update({
+        where: { id: userId },
+        data: {
+          fullName: 'Deleted user',
+          phone: null,
+          googleId: null,
+          phoneVerified: false,
+          idDocumentUrl: null,
+          lastActiveAt: null,
+          deletedAt: now,
+        },
+      });
+      await this.audit.record(tx, {
+        category: 'user_action',
+        action: 'account.deleted',
+        actor: { type: 'user', id: userId, role: profile.role },
+        target: { type: 'profile', id: userId },
+        metadata: { mode: 'anonymised', listingsArchived: archived.count },
+      });
+    });
+    this.logger.log(`Account anonymised: ${userId}`);
     return { deleted: true };
   }
 }

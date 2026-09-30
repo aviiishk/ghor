@@ -148,7 +148,7 @@ Use concise, confident language. GHOR should sound useful and local, not hype-he
 
 Preferred phrases:
 
-- verified rooms and PGs
+- GHOR-approved rooms and PGs (never "verified" for ordinary approval — "GHOR Verified" is reserved)
 - direct owner chat
 - first 100 users
 - early access

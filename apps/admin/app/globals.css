@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Semantic variables for shadcn/ui + Bklit, derived from GHOR design tokens
+   (../../design-tokens.js). HSL triplets because shadcn's Tailwind 3 setup composes them as
+   hsl(var(--x) / alpha). The admin console is light-only for now.
+   NOTE: `shadcn add @bklit/...` rewrites the chart variables below with Bklit's generic
+   greyscale defaults — restore the GHOR values after adding any Bklit component. */
+@layer base {
+  :root {
+    --background: 0 0% 100%;            /* canvas #FFFFFF */
+    --foreground: 222 47% 11%;          /* ink #0F172A */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary-foreground: 0 0% 100%;    /* on-primary */
+    --secondary: 210 40% 96%;           /* surface-sunken #F1F5F9 */
+    --secondary-foreground: 222 47% 11%;
+    --accent: 214 100% 97%;             /* primary-light #EFF6FF */
+    --accent-foreground: 226 71% 40%;   /* primary-pressed #1D4ED8 */
+    --muted-foreground: 215 16% 47%;    /* muted #64748B */
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;              /* hairline #E2E8F0 */
+    --input: 214 32% 91%;
+    --ring: 212 96% 78%;                /* focus-ring #93C5FD */
+    --radius: 0.75rem;
+
+    /* Bklit chart variables (https://bklit.com/docs/theming) → GHOR palette. Series use
+       distinct GHOR hues (blue / green / amber / red / navy) so they never rely on shade
+       alone; every chart also has a legend. */
+    --chart-1: #2563eb;                 /* primary */
+    --chart-2: #15803d;                 /* success-deep */
+    --chart-3: #b45309;                 /* warning-deep */
+    --chart-4: #dc2626;                 /* destructive-pressed */
+    --chart-5: #0b1b3f;                 /* navy */
+    --chart-background: #ffffff;
+    --chart-foreground: #0f172a;
+    --chart-foreground-muted: #64748b;
+    --chart-label: #64748b;
+    --chart-grid: #e2e8f0;
+    --chart-crosshair: #0b1b3f;
+    --chart-indicator-color: #0b1b3f;
+    --chart-indicator-secondary-color: #93c5fd;
+    --chart-line-primary: var(--chart-1);
+    --chart-line-secondary: var(--chart-2);
+    --chart-tooltip-background: #0b1b3f;
+    --chart-tooltip-foreground: #ffffff;
+    --chart-tooltip-muted: #cbd5e1;
+    --chart-marker-background: #ffffff;
+    --chart-marker-border: #2563eb;
+    --chart-marker-foreground: #0f172a;
+    --chart-marker-badge-background: #0b1b3f;
+    --chart-marker-badge-foreground: #ffffff;
+    --chart-segment-background: #f1f5f9;
+    --chart-segment-line: #cbd5e1;
+    --chart-brush-border: var(--chart-grid);
+    --chart-scale-01: #eff6ff;
+    --chart-scale-02: #dbeafe;
+    --chart-scale-03: #93c5fd;
+    --chart-scale-04: #2563eb;
+    --chart-scale-05: #1d4ed8;
+    --chart-scale-pattern-color: #f1f5f9;
+    --shimmering-color: #94a3b8;
+  }
+}
+
+html,
+body {
+  background: theme("colors.surface");
+  color: theme("colors.body");
+}

@@ -30,6 +30,16 @@ function matches(pathname: string, prefixes: string[]) {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Legacy admin (D-46): fail closed, like apps/api's /legacy-admin/* routes — the pages
+  // exist only when LEGACY_ADMIN_ENABLED is exactly "true" (migration/testing). The
+  // production console is the separate admin app (apps/admin).
+  if (process.env.LEGACY_ADMIN_ENABLED !== 'true' && matches(pathname, ['/admin'])) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/browse';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
   const hasSession = request.cookies.has(REFRESH_COOKIE);
 
   if (matches(pathname, PROTECTED_PREFIXES) && !hasSession) {

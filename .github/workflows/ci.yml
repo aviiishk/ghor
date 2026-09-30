@@ -17,8 +17,25 @@ permissions:
 
 jobs:
   api:
-    name: API — typecheck & build
+    name: API — typecheck, build & tests
     runs-on: ubuntu-latest
+    # Disposable Postgres for the e2e suite (auth, permissions, moderation, audit). The
+    # harness refuses any non-local database URL, so tests can never touch dev/prod.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ghor
+          POSTGRES_PASSWORD: ghor_test
+          POSTGRES_DB: ghor_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ghor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://ghor:ghor_test@localhost:5432/ghor_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,6 +49,12 @@ jobs:
       - run: npx tsc --noEmit -p .
         working-directory: apps/api
       - run: npm run build
+        working-directory: apps/api
+      - name: Unit tests
+        run: npm test
+        working-directory: apps/api
+      - name: E2E tests (migrations + authorization + moderation)
+        run: npm run test:e2e
         working-directory: apps/api
 
   web:
@@ -50,6 +73,61 @@ jobs:
         working-directory: apps/web
         env:
           NEXT_TELEMETRY_DISABLED: '1'
+
+  admin:
+    name: Admin console — typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+        working-directory: apps/admin
+      - run: npx next build
+        working-directory: apps/admin
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+  admin-e2e:
+    name: Admin console — browser smoke test (Playwright)
+    runs-on: ubuntu-latest
+    needs: [api, admin]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ghor
+          POSTGRES_PASSWORD: ghor_test
+          POSTGRES_DB: ghor_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ghor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://ghor:ghor_test@localhost:5432/ghor_test
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+        working-directory: apps/api
+      - run: npm run build
+        working-directory: apps/api
+      - run: npx next build
+        working-directory: apps/admin
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/admin
+      - run: npx playwright test
+        working-directory: apps/admin
 
   mobile:
     name: Mobile — typecheck

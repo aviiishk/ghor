@@ -226,7 +226,7 @@ export default function HomeScreen() {
               <EmptyState
                 icon={Home}
                 title="No homes here yet"
-                body="GHOR is onboarding owners across Guwahati. Every listing is reviewed before it appears, so check back soon."
+                body="GHOR is onboarding owners across Guwahati. Every listing is checked by GHOR before it appears, so check back soon."
               />
             )
           }

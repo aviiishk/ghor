@@ -9,6 +9,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
 import { CreateReviewDto } from './dto/create-review.dto';
+import { AuditService, type AuditContext } from '../audit/audit.service';
+import type { Principal } from '../auth/principal';
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -35,6 +37,7 @@ export class ReviewsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly push: PushService,
+    private readonly audit: AuditService,
   ) {}
 
   // Same visibility rule as ListingsService.findOne(): approved to everyone, anything
@@ -43,19 +46,21 @@ export class ReviewsService {
   // able to read and leave reviews, it's just off the browse feed.
   private async getVisibleListing(
     userId: string,
-    role: string,
+    staff: boolean,
     listingId: string,
   ): Promise<ListingForReview> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      select: { id: true, ownerId: true, status: true, title: true },
+      select: { id: true, ownerId: true, status: true, title: true, deletedAt: true },
     });
+    // Archived (deleted) listings: reviews stay readable to staff only (trust & safety).
     const visible =
       listing &&
+      (!listing.deletedAt || staff) &&
       (listing.status === 'approved' ||
         listing.status === 'rented' ||
         listing.ownerId === userId ||
-        role === 'admin');
+        staff);
     if (!visible) throw new NotFoundException('Listing not found');
     return listing;
   }
@@ -93,12 +98,12 @@ export class ReviewsService {
 
   async list(
     userId: string,
-    role: string,
+    staff: boolean,
     listingId: string,
     cursor?: string,
     limit = DEFAULT_PAGE_SIZE,
   ) {
-    const listing = await this.getVisibleListing(userId, role, listingId);
+    const listing = await this.getVisibleListing(userId, staff, listingId);
 
     let cursorWhere: Prisma.ReviewWhereInput = {};
     if (cursor) {
@@ -136,11 +141,11 @@ export class ReviewsService {
 
   async create(
     userId: string,
-    role: string,
+    staff: boolean,
     listingId: string,
     dto: CreateReviewDto,
   ) {
-    const listing = await this.getVisibleListing(userId, role, listingId);
+    const listing = await this.getVisibleListing(userId, staff, listingId);
     if (listing.ownerId === userId) {
       throw new BadRequestException("You can't review your own listing");
     }
@@ -184,32 +189,49 @@ export class ReviewsService {
   // Admin moderation — `hidden` is the only lever (no edit, no pending gate).
   // ---------------------------------------------------------------------------
 
-  async adminList(hidden?: boolean) {
-    return this.prisma.review.findMany({
-      where: hidden === undefined ? {} : { hidden },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+  async adminList(query: { hidden?: boolean; cursor?: string; limit?: number }) {
+    const limit = query.limit ?? 50;
+    const rows = await this.prisma.review.findMany({
+      where: query.hidden === undefined ? {} : { hidden: query.hidden },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
       select: {
         ...REVIEW_SELECT,
         hidden: true,
         listing: { select: { id: true, title: true } },
       },
     });
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    return { items, nextCursor: hasMore ? items[items.length - 1]!.id : null };
   }
 
-  async setHidden(id: string, hidden: boolean) {
-    const existing = await this.prisma.review.findUnique({
-      where: { id },
-      select: { listingId: true },
-    });
-    if (!existing) throw new NotFoundException('Review not found');
+  // Hide/unhide + aggregate recompute + audit row, all in one transaction.
+  async setHidden(principal: Principal, id: string, hidden: boolean, reason: string | undefined, ctx: AuditContext) {
     return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.review.findUnique({
+        where: { id },
+        select: { listingId: true, hidden: true },
+      });
+      if (!existing) throw new NotFoundException('Review not found');
       const updated = await tx.review.update({
         where: { id },
         data: { hidden },
         select: { ...REVIEW_SELECT, hidden: true },
       });
       await this.recomputeAggregates(tx, existing.listingId);
+      await this.audit.record(tx, {
+        category: 'admin_action',
+        action: hidden ? 'review.hidden' : 'review.unhidden',
+        actor: AuditService.actor(principal),
+        target: { type: 'review', id },
+        reason: reason ?? null,
+        before: { hidden: existing.hidden },
+        after: { hidden },
+        metadata: { listingId: existing.listingId },
+        ctx,
+      });
       return updated;
     });
   }

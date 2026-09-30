@@ -11,11 +11,11 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "GHOR - Find Rooms & PGs in Guwahati",
   description:
-    "Find verified rooms and PGs in Guwahati. Join the GHOR waitlist and get early access before launch.",
+    "Find GHOR-approved rooms and PGs in Guwahati. Join the GHOR waitlist and get early access before launch.",
   openGraph: {
     title: "GHOR - Find Rooms & PGs in Guwahati",
     description:
-      "Find verified rooms and PGs in Guwahati. Join the GHOR waitlist and get early access before launch.",
+      "Find GHOR-approved rooms and PGs in Guwahati. Join the GHOR waitlist and get early access before launch.",
     url: "https://ghor.app",
     siteName: "GHOR",
     type: "website"
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "GHOR - Find Rooms & PGs in Guwahati",
     description:
-      "Find verified rooms and PGs in Guwahati. Join the GHOR waitlist and get early access before launch."
+      "Find GHOR-approved rooms and PGs in Guwahati. Join the GHOR waitlist and get early access before launch."
   },
   metadataBase: new URL("https://ghor.app")
 };

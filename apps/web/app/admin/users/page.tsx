@@ -1,14 +1,13 @@
 'use client';
 
-import { useAdminUsers, useSetUserBanned, useSetUserRole } from '@/features/admin/hooks';
-import { useProfile } from '@/features/auth/hooks';
+import { useAdminUsers, useSetUserRole } from '@/features/admin/hooks';
 
-const ROLES = ['seeker', 'owner', 'admin'] as const;
+// Marketplace roles only. Admin roles, bans and unbans are managed in the new admin
+// console (apps/admin), where they are step-up protected and audited.
+const ROLES = ['seeker', 'owner'] as const;
 
 export default function AdminUsersPage() {
   const { data: users, isLoading, isError } = useAdminUsers();
-  const { data: me } = useProfile();
-  const setBanned = useSetUserBanned();
   const setRole = useSetUserRole();
 
   return (
@@ -40,28 +39,26 @@ export default function AdminUsersPage() {
                     {user.fullName ?? '—'}
                   </td>
                   <td className="px-4 py-3 text-muted whitespace-nowrap">
-                    {user.phone ?? (user.googleId ? 'Google' : '—')}
+                    {user.phone ?? (user.hasGoogle ? 'Google' : '—')}
                   </td>
                   <td className="px-4 py-3">
-                    <select
-                      value={user.role}
-                      onChange={(e) =>
-                        setRole.mutate({ id: user.id, role: e.target.value as typeof user.role })
-                      }
-                      disabled={user.id === me?.id && user.role === 'admin'}
-                      title={
-                        user.id === me?.id && user.role === 'admin'
-                          ? "You can't remove your own admin role"
-                          : undefined
-                      }
-                      className="border border-hairline rounded-lg px-2 py-1 text-sm capitalize bg-white disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
+                    {user.isAdmin || user.role === 'admin' ? (
+                      <span className="text-sm capitalize text-muted">admin</span>
+                    ) : (
+                      <select
+                        value={user.role}
+                        onChange={(e) =>
+                          setRole.mutate({ id: user.id, role: e.target.value as (typeof ROLES)[number] })
+                        }
+                        className="border border-hairline rounded-lg px-2 py-1 text-sm capitalize bg-white"
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-muted">{user._count.listings}</td>
                   <td className="px-4 py-3 text-muted whitespace-nowrap">
@@ -78,14 +75,8 @@ export default function AdminUsersPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => setBanned.mutate({ id: user.id, banned: !user.banned })}
-                      disabled={user.role === 'admin'}
-                      className="text-xs font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {user.banned ? 'Unban' : 'Ban'}
-                    </button>
+                  <td className="px-4 py-3 text-xs text-muted whitespace-nowrap">
+                    Ban/unban in the admin console
                   </td>
                 </tr>
               ))}

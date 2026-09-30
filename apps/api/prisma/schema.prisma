@@ -96,6 +96,11 @@ enum NotificationType {
   listing_approved
   listing_rejected
   new_review
+  // Phase 0 admin foundation (2026-09-29). Mobile renders unknown types with a raw-label
+  // fallback (app/notifications.tsx), so adding values here never crashes older clients.
+  listing_paused
+  listing_restored
+  security_alert
 
   @@map("notification_type")
 }
@@ -120,6 +125,11 @@ model Profile {
   // fetch. Consider moving to a separate access-audited store before this goes live for
   // real, not just before it's built (root CLAUDE.md §15 production-readiness checklist).
   idDocumentUrl        String?              @map("id_document_url")
+  // P0-10 data retention (2026-09-30): account deletion ANONYMISES the profile instead of
+  // deleting the row, so the other party's chats, reports, reviews, moderation records and
+  // audit rows survive (and a deleted account can never be restored by a new signup, which
+  // gets a fresh profile). A non-null deletedAt blocks every sign-in and token.
+  deletedAt            DateTime?            @map("deleted_at")
 
   listings      Listing[]
   seekerConvos  Conversation[] @relation("SeekerConversations")
@@ -131,6 +141,7 @@ model Profile {
   refreshTokens RefreshToken[]
   reviews       Review[]
   notifications Notification[]
+  adminUser     AdminUser?
 
   @@map("profiles")
 }
@@ -195,6 +206,39 @@ model Listing {
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 
+  // ---- Moderation / concurrency (Phase 0, docs/GHOR-ADMIN-API-AUDIT.md DB-05) ----
+  // Optimistic-concurrency version: incremented by every moderation-relevant change
+  // (owner content/status edits, every admin decision, hold, pause, auto-approval).
+  // Admin decisions carry expectedVersion and fail with 409 when it is stale.
+  version          Int               @default(1)
+  // When the listing last entered `pending` (submission / resubmission / content change).
+  submittedAt      DateTime?         @map("submitted_at")
+  // When the 5-minute auto-approval job may approve this listing (D-17). Null = not
+  // eligible. Claiming never touches this; only a decision or an explicit hold does.
+  autoApproveAt    DateTime?         @map("auto_approve_at")
+  approvalSource   ApprovalSource?   @map("approval_source")
+  approvedAt       DateTime?         @map("approved_at")
+  approvedById     String?           @map("approved_by_id")
+  // Hold = "a human must decide" — stops auto-approval (D-47). heldById null = system hold.
+  heldAt           DateTime?         @map("held_at")
+  heldById         String?           @map("held_by_id")
+  holdReason       String?           @map("hold_reason")
+  // Pause hides an approved listing from every public surface without changing `status`
+  // (a new ListingStatus value would crash older mobile builds, see StatusPill.tsx).
+  pausedAt         DateTime?         @map("paused_at")
+  pausedById       String?           @map("paused_by_id")
+  pauseReason      String?           @map("pause_reason")
+  postReviewStatus PostReviewStatus? @map("post_review_status")
+  // Claim = assignment metadata only (D-47): never a status, never shown to users, never
+  // affects autoApproveAt.
+  claimedById      String?           @map("claimed_by_id")
+  claimedAt        DateTime?         @map("claimed_at")
+  claimExpiresAt   DateTime?         @map("claim_expires_at")
+  // P0-10: an owner "deleting" a listing archives it. Hidden from every marketplace surface
+  // and from the owner's own list, but its conversations, reports, reviews, snapshots and
+  // moderation history stay intact for trust & safety.
+  deletedAt        DateTime?         @map("deleted_at")
+
   images        ListingImage[]
   conversations Conversation[]
   reports       Report[]
@@ -204,6 +248,8 @@ model Listing {
   @@index([status, city, createdAt(sort: Desc)])
   @@index([status, city, propertyType, createdAt(sort: Desc)])
   @@index([ownerId])
+  @@index([status, autoApproveAt])
+  @@index([status, submittedAt])
   @@map("listings")
 }
 
@@ -297,9 +343,12 @@ model PushToken {
 // Tunables (ad frequency, page size, report threshold, feature flags) editable without a
 // new API deploy or app store release — root CLAUDE.md §14.6.
 model AppConfig {
-  key       String   @id
-  value     Json
-  updatedAt DateTime @default(now()) @map("updated_at")
+  key         String   @id
+  value       Json
+  // Optimistic concurrency for config edits (expectedVersion -> 409 when stale).
+  version     Int      @default(1)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by_id")
 
   @@map("app_config")
 }
@@ -316,8 +365,12 @@ model Report {
   reasonCategory ReportReasonCategory @default(other) @map("reason_category")
   status         ReportStatus         @default(pending)
   createdAt      DateTime             @default(now()) @map("created_at")
+  resolvedById   String?              @map("resolved_by_id")
+  resolvedAt     DateTime?            @map("resolved_at")
+  resolutionNote String?              @map("resolution_note")
 
   @@index([listingId])
+  @@index([status, createdAt])
   @@map("reports")
 }
 
@@ -330,6 +383,7 @@ model Event {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([userId])
+  @@index([eventName, createdAt])
   @@map("events")
 }
 
@@ -369,4 +423,317 @@ model Notification {
 
   @@index([userId, createdAt(sort: Desc)])
   @@map("notifications")
+}
+
+// =============================================================================
+// Phase 0 — secure admin foundation (2026-09-29). Design + rationale:
+// docs/GHOR-ADMIN-API-AUDIT.md §15, §23, §30 and D-46/D-47 in the decision register.
+// =============================================================================
+
+enum ApprovalSource {
+  manual
+  automatic_5min
+  automatic_verified
+
+  @@map("approval_source")
+}
+
+enum PostReviewStatus {
+  pending
+  confirmed
+  escalated
+
+  @@map("post_review_status")
+}
+
+// Admin roles live apart from the marketplace role (profiles.role). D-47: super_admin is
+// NOT a superset — GHOR Verified authority comes only from the senior-reviewer capability
+// (role senior_reviewer, or super_admin with seniorCapability = true).
+enum AdminRole {
+  admin
+  senior_reviewer
+  super_admin
+
+  @@map("admin_role")
+}
+
+enum AdminUserStatus {
+  active
+  disabled
+
+  @@map("admin_user_status")
+}
+
+enum AdminSessionState {
+  // First factor (phone OTP) passed; TOTP verification still required.
+  pending_mfa
+  // Signed in with a recovery code, break-glass or after a TOTP reset: a new
+  // authenticator must be enrolled before anything else is allowed (D-47).
+  reenroll_required
+  active
+
+  @@map("admin_session_state")
+}
+
+enum ModerationDecisionType {
+  approve
+  reject
+  request_changes
+  hold
+  release_hold
+  pause
+  restore
+  post_review_confirm
+  post_review_reject
+  post_review_escalate
+  auto_approve
+  system_hold
+
+  @@map("moderation_decision_type")
+}
+
+enum AuditCategory {
+  admin_action
+  security
+  data_access
+  system
+  user_action
+
+  @@map("audit_category")
+}
+
+enum AuditActorType {
+  admin
+  user
+  system
+  anonymous
+
+  @@map("audit_actor_type")
+}
+
+enum AlertSeverity {
+  info
+  warning
+  critical
+
+  @@map("alert_severity")
+}
+
+model AdminUser {
+  id               String          @id @default(uuid())
+  profileId        String          @unique @map("profile_id")
+  // Restrict: an admin's profile can't be deleted out from under the admin record.
+  profile          Profile         @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  role             AdminRole
+  // Only meaningful for super_admin (senior_reviewer has the capability inherently).
+  seniorCapability Boolean         @default(false) @map("senior_capability")
+  status           AdminUserStatus @default(active)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  createdById      String?         @map("created_by_id")
+  disabledAt       DateTime?       @map("disabled_at")
+
+  // TOTP. The secret is AES-256-GCM encrypted with a key held outside the database
+  // (ADMIN_TOTP_ENCRYPTION_KEY) and is never returned after enrollment.
+  totpSecretCiphertext        String?   @map("totp_secret_ciphertext")
+  totpEnrolledAt              DateTime? @map("totp_enrolled_at")
+  // Last accepted RFC 6238 time step; codes at or before it are rejected (replay).
+  totpLastTimeStep            Int?      @map("totp_last_time_step")
+  pendingTotpSecretCiphertext String?   @map("pending_totp_secret_ciphertext")
+  pendingTotpCreatedAt        DateTime? @map("pending_totp_created_at")
+  totpFailedAttempts          Int       @default(0) @map("totp_failed_attempts")
+  totpLockedUntil             DateTime? @map("totp_locked_until")
+
+  sessions      AdminSession[]
+  recoveryCodes AdminRecoveryCode[]
+
+  @@map("admin_users")
+}
+
+model AdminSession {
+  // uuid v4 (122 random bits). Possession is proven by the admin JWT (separate secret,
+  // aud=admin) or the opaque refresh token, never by the id alone.
+  id                       String            @id @default(uuid())
+  adminUserId              String            @map("admin_user_id")
+  adminUser                AdminUser         @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  state                    AdminSessionState
+  // otp_totp | recovery_code | break_glass
+  method                   String
+  createdAt                DateTime          @default(now()) @map("created_at")
+  lastSeenAt               DateTime          @map("last_seen_at")
+  idleExpiresAt            DateTime          @map("idle_expires_at")
+  absoluteExpiresAt        DateTime          @map("absolute_expires_at")
+  mfaVerifiedAt            DateTime?         @map("mfa_verified_at")
+  stepUpAt                 DateTime?         @map("step_up_at")
+  // SHA-256 of the opaque refresh token (32 random bytes); rotated on every refresh.
+  refreshTokenHash         String?           @unique @map("refresh_token_hash")
+  // Presenting an already-rotated token again is a theft signal: the session is revoked.
+  previousRefreshTokenHash String?           @unique @map("previous_refresh_token_hash")
+  ipHash                   String?           @map("ip_hash")
+  userAgent                String?           @map("user_agent")
+  revokedAt                DateTime?         @map("revoked_at")
+  revokedReason            String?           @map("revoked_reason")
+
+  @@index([adminUserId])
+  @@map("admin_sessions")
+}
+
+model AdminRecoveryCode {
+  id          String    @id @default(uuid())
+  adminUserId String    @map("admin_user_id")
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  batchId     String    @map("batch_id")
+  // HMAC-SHA-256(pepper, code). Codes are high-entropy, so a keyed hash is sufficient and
+  // allows an indexed lookup. The plaintext is returned exactly once, at generation.
+  codeHash    String    @unique @map("code_hash")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  usedAt      DateTime? @map("used_at")
+  revokedAt   DateTime? @map("revoked_at")
+
+  @@index([adminUserId])
+  @@map("admin_recovery_codes")
+}
+
+// Append-only. No foreign keys on purpose: deleting a profile or listing must never delete
+// the record of what was done to it. UPDATE/DELETE are rejected by a database trigger (see
+// the migration), and the application exposes no update/delete path.
+model AuditLog {
+  id         String         @id @default(uuid())
+  createdAt  DateTime       @default(now()) @map("created_at")
+  category   AuditCategory
+  action     String
+  actorType  AuditActorType @map("actor_type")
+  actorId    String?        @map("actor_id")
+  actorRole  String?        @map("actor_role")
+  targetType String?        @map("target_type")
+  targetId   String?        @map("target_id")
+  reason     String?
+  before     Json?
+  after      Json?
+  metadata   Json?
+  sessionId  String?        @map("session_id")
+  requestId  String?        @map("request_id")
+  ipHash     String?        @map("ip_hash")
+  userAgent  String?        @map("user_agent")
+
+  @@index([targetType, targetId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([category, createdAt])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+// Moderation timeline. No FK to listings, for the same evidence-preservation reason as
+// audit_log.
+model ModerationDecision {
+  id               String                 @id @default(uuid())
+  listingId        String                 @map("listing_id")
+  decision         ModerationDecisionType
+  listingVersion   Int                    @map("listing_version")
+  resultingVersion Int                    @map("resulting_version")
+  reasonCodes      String[]               @map("reason_codes")
+  ownerMessage     String?                @map("owner_message")
+  internalNote     String?                @map("internal_note")
+  actorType        AuditActorType         @map("actor_type")
+  actorId          String?                @map("actor_id")
+  createdAt        DateTime               @default(now()) @map("created_at")
+
+  @@index([listingId, createdAt])
+  @@map("moderation_decisions")
+}
+
+// Content snapshot per listing version: powers "what changed since approval" and keeps
+// evidence even if the listing is later deleted.
+model ListingSnapshot {
+  id        String   @id @default(uuid())
+  listingId String   @map("listing_id")
+  version   Int
+  content   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([listingId, version])
+  @@map("listing_snapshots")
+}
+
+model ListingNote {
+  id        String   @id @default(uuid())
+  listingId String   @map("listing_id")
+  authorId  String   @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([listingId, createdAt])
+  @@map("listing_notes")
+}
+
+// Transactional outbox: written in the same transaction as the state change, delivered
+// after commit by OutboxWorker. dedupeKey makes enqueueing idempotent.
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  topic         String
+  dedupeKey     String    @unique @map("dedupe_key")
+  payload       Json
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  processedAt   DateTime? @map("processed_at")
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([processedAt, nextAttemptAt])
+  @@map("outbox_events")
+}
+
+// One row per background job: a lease (a multi-instance-safe equivalent of an advisory
+// lock that also works through Supabase's transaction pooler) plus a heartbeat.
+model JobState {
+  name                String    @id
+  leaseHolder         String?   @map("lease_holder")
+  leaseExpiresAt      DateTime? @map("lease_expires_at")
+  lastRunAt           DateTime? @map("last_run_at")
+  lastSuccessAt       DateTime? @map("last_success_at")
+  lastError           String?   @map("last_error")
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+
+  @@map("job_state")
+}
+
+// Recorded only when a run did work or failed (JobState.lastSuccessAt is the heartbeat).
+model JobRun {
+  id         String   @id @default(uuid())
+  jobName    String   @map("job_name")
+  startedAt  DateTime @map("started_at")
+  finishedAt DateTime @map("finished_at")
+  status     String
+  processed  Int      @default(0)
+  details    Json?
+
+  @@index([jobName, startedAt])
+  @@map("job_runs")
+}
+
+model SystemAlert {
+  id               String        @id @default(uuid())
+  kind             String
+  severity         AlertSeverity
+  message          String
+  // At most one OPEN alert per dedupeKey (partial unique index in the migration).
+  dedupeKey        String?       @map("dedupe_key")
+  metadata         Json?
+  createdAt        DateTime      @default(now()) @map("created_at")
+  acknowledgedAt   DateTime?     @map("acknowledged_at")
+  acknowledgedById String?       @map("acknowledged_by_id")
+  ackNote          String?       @map("ack_note")
+
+  @@index([acknowledgedAt, createdAt])
+  @@map("system_alerts")
+}
+
+// Fixed-window rate-limit counters in Postgres, shared by every API instance, so limits
+// hold when the API scales horizontally (no Redis dependency at this scale).
+model RateLimitBucket {
+  key          String   @id
+  hits         Int
+  windowEndsAt DateTime @map("window_ends_at")
+
+  @@index([windowEndsAt])
+  @@map("rate_limit_buckets")
 }

@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 
 export type UploadSignature = {
   cloudName: string;
@@ -44,11 +45,13 @@ export class UploadsService {
   private readonly cloudName: string;
   private readonly apiKey: string;
   private readonly apiSecret: string;
-  // In-memory, per API instance — enough to stop a runaway client or script; move to a
-  // shared store (Redis) if the API ever runs as several instances.
-  private readonly issued = new Map<string, number[]>();
+  // Counted in Postgres (RateLimitService) since 2026-09-29, so the hourly cap holds
+  // across API instances — the old in-memory Map gave each instance its own budget.
 
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly limiter: RateLimitService,
+  ) {
     this.cloudName = (config.get<string>('CLOUDINARY_CLOUD_NAME') ?? '').trim();
     this.apiKey = (config.get<string>('CLOUDINARY_API_KEY') ?? '').trim();
     this.apiSecret = (config.get<string>('CLOUDINARY_API_SECRET') ?? '').trim();
@@ -60,7 +63,7 @@ export class UploadsService {
     return real(this.cloudName) && real(this.apiKey) && real(this.apiSecret);
   }
 
-  sign(userId: string): UploadSignature {
+  async sign(userId: string): Promise<UploadSignature> {
     if (!this.configured) {
       // Distinct, stable message: the web client shows a configuration notice for it
       // instead of blaming the user's photo.
@@ -68,7 +71,7 @@ export class UploadsService {
         'Photo uploads are not configured on this server',
       );
     }
-    this.rateLimit(userId);
+    await this.rateLimit(userId);
 
     const timestamp = Math.floor(Date.now() / 1000);
     const publicId = `${UPLOAD_FOLDER}/${randomUUID()}`;
@@ -92,18 +95,13 @@ export class UploadsService {
     };
   }
 
-  private rateLimit(userId: string) {
-    const now = Date.now();
-    const recent = (this.issued.get(userId) ?? []).filter(
-      (t) => now - t < 3_600_000,
-    );
-    if (recent.length >= MAX_SIGNATURES_PER_HOUR) {
+  private async rateLimit(userId: string) {
+    const result = await this.limiter.hit(`upload-signature:u:${userId}`, MAX_SIGNATURES_PER_HOUR, 3600);
+    if (!result.allowed) {
       throw new HttpException(
-        'Too many photo uploads in the last hour. Try again later.',
+        { message: 'Too many photo uploads in the last hour. Try again later.', code: 'RATE_LIMITED', retryAfterSeconds: result.retryAfterSeconds },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    recent.push(now);
-    this.issued.set(userId, recent);
   }
 }

@@ -6,7 +6,7 @@ import { IndianRupee, MessageCircle, ShieldCheck } from 'lucide-react';
 // form — and just the form, full-width, on phones. The photo is illustrative stock (see
 // public/landing/photos/README.md), not a GHOR listing.
 const POINTS = [
-  { icon: ShieldCheck, text: 'Every listing is reviewed before it goes live' },
+  { icon: ShieldCheck, text: 'Every listing is checked by GHOR before it goes live' },
   { icon: MessageCircle, text: 'Chat directly with owners — no middleman' },
   { icon: IndianRupee, text: 'No viewing fees. No brokerage.' },
 ];

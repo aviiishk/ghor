@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { BadgeCheck, CalendarCheck, Images, MapPin, ShieldCheck } from 'lucide-react';
+import { BadgeCheck, CalendarCheck, Images, MapPin, ShieldCheck, Zap } from 'lucide-react';
+import { approvalInfo } from '../approval';
 import type { Listing } from '../api';
 import { amenityLabel } from '../amenities';
 import { RatingDisplay } from '@/features/reviews/components/RatingDisplay';
@@ -36,7 +37,7 @@ export function ListingCard({
     .filter(([, on]) => on)
     .map(([key]) => amenityLabel(key));
   const avail = availability(listing.availableFrom);
-  const verified = listing.status === 'approved';
+  const approval = listing.status === 'approved' ? approvalInfo(listing) : null;
 
   return (
     <Link
@@ -71,12 +72,14 @@ export function ListingCard({
           </div>
         )}
 
-        {verified && (
+        {approval && (
           <span
-            className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-success-deep shadow-sm"
-            title="Reviewed and approved by GHOR before going live"
+            className={`absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold shadow-sm ${approval.automatic ? 'text-navy' : 'text-success-deep'}`}
+            title={approval.description}
           >
-            <ShieldCheck size={13} strokeWidth={2.5} aria-hidden /> Verified
+            {approval.automatic ? <Zap size={13} strokeWidth={2.5} aria-hidden /> : <ShieldCheck size={13} strokeWidth={2.5} aria-hidden />}
+            {approval.automatic ? 'Auto-approved' : 'Approved'}
+            <span className="sr-only"> — {approval.label}</span>
           </span>
         )}
         {listing.images.length > 1 && (

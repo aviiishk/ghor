@@ -1,32 +1,33 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PushService } from '../push/push.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { Clock } from '../common/clock';
+import { AuditService, type AuditActor, type AuditContext } from '../audit/audit.service';
+import { AppSettingsService } from '../app-config/app-settings.service';
+import { hasPermission, type Principal } from '../auth/principal';
+import { isOwnerTransitionAllowed, submissionFields } from '../moderation/listing-state';
+import { snapshotListing } from '../moderation/moderation.service';
 import { EventsService } from '../events/events.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { BrowseListingsDto } from './dto/browse-listings.dto';
+import {
+  OWNER_LISTING_SELECT,
+  PUBLIC_LISTING_SELECT,
+  RENTER_LISTING_SELECT,
+  presentListing,
+} from './listing-shapes';
 
-const OWNER_CARD_SELECT = {
-  id: true,
-  fullName: true,
-  phoneVerified: true,
-  lastActiveAt: true,
-  idVerificationStatus: true,
-} satisfies Prisma.ProfileSelect;
-
-// Exported for OwnersService's owner-profile listing grid — same card shape everywhere.
-export const LISTING_INCLUDE = {
-  images: { orderBy: { position: 'asc' as const } },
-  institutions: { include: { institution: true } },
-  owner: { select: OWNER_CARD_SELECT },
-} satisfies Prisma.ListingInclude;
+// Response shapes live in listing-shapes.ts (public / renter / owner / admin). Marketplace
+// responses never use a bare `include`: that would return every moderation column.
+export { ADMIN_LISTING_INCLUDE } from './listing-shapes';
 
 const MAP_PIN_LIMIT = 500;
 
@@ -54,9 +55,11 @@ function jitter(id: string, lat: number, lng: number) {
 export class ListingsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly push: PushService,
     private readonly geocoding: GeocodingService,
     private readonly events: EventsService,
+    private readonly clock: Clock,
+    private readonly audit: AuditService,
+    private readonly settings: AppSettingsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -94,11 +97,11 @@ export class ListingsService {
           ? { create: dto.institutionIds.map((institutionId) => ({ institutionId })) }
           : undefined,
       },
-      include: LISTING_INCLUDE,
+      select: OWNER_LISTING_SELECT,
     });
     this.geocodeInBackground(created.id, created.locality, created.city, created.state);
     this.events.record(ownerId, 'listing_created', { listingId: created.id });
-    return created;
+    return presentListing(created);
   }
 
   // ---------------------------------------------------------------------------
@@ -106,33 +109,46 @@ export class ListingsService {
   // ---------------------------------------------------------------------------
 
   async findMine(ownerId: string) {
-    return this.prisma.listing.findMany({
-      where: { ownerId },
+    const rows = await this.prisma.listing.findMany({
+      // Archived (owner-deleted) listings are not shown to their owner any more.
+      where: { ownerId, deletedAt: null },
       orderBy: { updatedAt: 'desc' },
-      include: LISTING_INCLUDE,
+      select: OWNER_LISTING_SELECT,
     });
+    return rows.map(presentListing);
   }
 
-  async findOne(userId: string, role: string, id: string) {
-    const listing = await this.prisma.listing.findUnique({
+  // `staff` = the caller may review listings (an active admin_users row with
+  // listings.review) — read-only visibility of non-public listings, nothing more.
+  async findOne(userId: string, staff: boolean, id: string) {
+    // Visibility inputs (pausedAt/deletedAt) are selected for the check below and never
+    // returned.
+    const row = await this.prisma.listing.findUnique({
       where: { id },
-      include: { ...LISTING_INCLUDE, owner: { select: { ...OWNER_CARD_SELECT, phone: true } } },
+      select: { ...RENTER_LISTING_SELECT, pausedAt: true, deletedAt: true },
     });
     // 404, not 403, for a listing that exists but isn't visible — doesn't confirm
     // existence of someone else's draft/pending/rejected listing to a random caller.
-    if (!listing) throw new NotFoundException('Listing not found');
+    if (!row) throw new NotFoundException('Listing not found');
+    const { pausedAt, deletedAt, ...listing } = row;
 
     const isOwner = listing.ownerId === userId;
-    const canView = listing.status === 'approved' || isOwner || role === 'admin';
+    // Archived listings: staff only (trust & safety evidence); gone for everyone else.
+    const canView = deletedAt
+      ? staff
+      : (listing.status === 'approved' && !pausedAt) || isOwner || staff;
     if (!canView) throw new NotFoundException('Listing not found');
 
-    if (!isOwner) {
-      // Fire-and-forget — trust signal ("X people viewed this today", root CLAUDE.md §2).
-      // An owner viewing their own listing doesn't count as a view.
-      this.events.record(userId, 'listing_view', { listingId: id });
+    if (isOwner) {
+      // The owner's own detail uses the owner shape (no phone round-trip to themselves).
+      const { owner, ...rest } = listing;
+      const { phone: _phone, ...ownerCard } = owner;
+      return presentListing({ ...rest, owner: ownerCard });
     }
-
-    return listing;
+    // Fire-and-forget — trust signal ("X people viewed this today", root CLAUDE.md §2).
+    // An owner viewing their own listing doesn't count as a view.
+    this.events.record(userId, 'listing_view', { listingId: id });
+    return presentListing(listing);
   }
 
   // ---------------------------------------------------------------------------
@@ -155,11 +171,11 @@ export class ListingsService {
       orderBy,
       take: limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-      include: LISTING_INCLUDE,
+      select: PUBLIC_LISTING_SELECT,
     });
 
     const hasMore = rows.length > limit;
-    const items = hasMore ? rows.slice(0, limit) : rows;
+    const items = (hasMore ? rows.slice(0, limit) : rows).map(presentListing);
     return {
       items,
       nextCursor: hasMore ? items[items.length - 1]!.id : null,
@@ -170,6 +186,10 @@ export class ListingsService {
   private buildBrowseWhere(query: BrowseListingsDto): Prisma.ListingWhereInput {
     const where: Prisma.ListingWhereInput = {
       status: 'approved',
+      // Paused (admin moderation) and archived (owner-deleted) listings are hidden from
+      // every public surface.
+      pausedAt: null,
+      deletedAt: null,
       city: query.city ?? 'Guwahati',
     };
     if (query.propertyType) where.propertyType = query.propertyType;
@@ -227,7 +247,7 @@ export class ListingsService {
 
   async popularLocalities(city = 'Guwahati', limit = 8) {
     const rows = await this.prisma.listing.findMany({
-      where: { status: 'approved', city },
+      where: { status: 'approved', pausedAt: null, deletedAt: null, city },
       select: { locality: true, rent: true },
       take: 2000,
     });
@@ -304,9 +324,17 @@ export class ListingsService {
   // Admin one-off for listings created before geocoding existed (or while it was down).
   // Queues up to `limit` un-geocoded, non-draft listings; the 1 req/s queue means this
   // finishes in the background roughly `limit` seconds later.
-  async backfillGeocoding(limit = 100) {
+  async backfillGeocoding(actor: AuditActor, reason: string, ctx: AuditContext, limit = 100) {
+    await this.audit.record(this.prisma, {
+      category: 'admin_action',
+      action: 'system.geocode_backfill',
+      actor,
+      reason,
+      metadata: { limit },
+      ctx,
+    });
     const pending = await this.prisma.listing.findMany({
-      where: { latitude: null, status: { in: ['approved', 'pending', 'rented'] } },
+      where: { latitude: null, deletedAt: null, status: { in: ['approved', 'pending', 'rented'] } },
       select: { id: true, locality: true, city: true, state: true },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -322,7 +350,7 @@ export class ListingsService {
   // first within a score. Candidate set capped so this stays one cheap query.
   // ---------------------------------------------------------------------------
 
-  async findSimilar(userId: string, role: string, id: string, limit = 6) {
+  async findSimilar(userId: string, staff: boolean, id: string, limit = 6) {
     // Same visibility rule as findOne() — reuses it for the 404 behaviour, but without
     // logging a listing_view event (this isn't the user viewing the listing).
     const base = await this.prisma.listing.findUnique({
@@ -330,7 +358,10 @@ export class ListingsService {
       include: { institutions: { select: { institutionId: true } } },
     });
     const canView =
-      base && (base.status === 'approved' || base.ownerId === userId || role === 'admin');
+      base &&
+      (base.deletedAt
+        ? staff
+        : (base.status === 'approved' && !base.pausedAt) || base.ownerId === userId || staff);
     if (!canView) throw new NotFoundException('Listing not found');
 
     const baseLocality = base.locality.trim().toLowerCase();
@@ -340,6 +371,8 @@ export class ListingsService {
     const candidates = await this.prisma.listing.findMany({
       where: {
         status: 'approved',
+        pausedAt: null,
+        deletedAt: null,
         city: base.city,
         id: { not: base.id },
         OR: [
@@ -354,7 +387,7 @@ export class ListingsService {
       },
       orderBy: { createdAt: 'desc' },
       take: 40,
-      include: LISTING_INCLUDE,
+      select: PUBLIC_LISTING_SELECT,
     });
 
     const score = (l: (typeof candidates)[number]) =>
@@ -367,7 +400,7 @@ export class ListingsService {
       .map((l) => ({ l, s: score(l) }))
       .sort((a, b) => b.s - a.s)
       .slice(0, limit)
-      .map(({ l }) => l);
+      .map(({ l }) => presentListing(l));
   }
 
   // ---------------------------------------------------------------------------
@@ -376,14 +409,15 @@ export class ListingsService {
   // No new tables. Days are bucketed in IST, since owners read these as local dates.
   // ---------------------------------------------------------------------------
 
-  async getInsights(userId: string, role: string, id: string) {
+  async getInsights(userId: string, staff: boolean, id: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      select: { ownerId: true, createdAt: true, avgRating: true, reviewCount: true },
+      select: { ownerId: true, createdAt: true, avgRating: true, reviewCount: true, deletedAt: true },
     });
+    if (listing?.deletedAt && !staff) throw new NotFoundException('Listing not found');
     // 404 rather than 403 for someone else's listing — same no-existence-leak rule as
     // findOne().
-    if (!listing || (listing.ownerId !== userId && role !== 'admin')) {
+    if (!listing || (listing.ownerId !== userId && !staff)) {
       throw new NotFoundException('Listing not found');
     }
 
@@ -472,39 +506,12 @@ export class ListingsService {
   }
 
   // ---------------------------------------------------------------------------
-  // Admin moderation queue — root CLAUDE.md §14.10.
+  // Update — OWNER ONLY. Admin moderation never goes through this endpoint any more
+  // (Phase 0, docs/GHOR-ADMIN-API-AUDIT.md §11/T-10): it lives in ModerationService,
+  // with version checks, reasons, snapshots and audit rows.
   // ---------------------------------------------------------------------------
 
-  async findPendingQueue() {
-    return this.prisma.listing.findMany({
-      where: { status: 'pending' },
-      orderBy: { updatedAt: 'asc' },
-      include: LISTING_INCLUDE,
-    });
-  }
-
-  async bulkSetStatus(ids: string[], status: 'approved' | 'rejected') {
-    // ownerId per listing, fetched before the update, so each owner gets notified —
-    // same reasoning as the single-listing update() path above.
-    const owners = await this.prisma.listing.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, ownerId: true, title: true },
-    });
-    const result = await this.prisma.listing.updateMany({
-      where: { id: { in: ids } },
-      data: { status },
-    });
-    owners.forEach((listing) =>
-      this.notifyOwner(listing.ownerId, listing.id, status, listing.title),
-    );
-    return { updated: result.count };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Update — content fields + the two non-admin status transitions.
-  // ---------------------------------------------------------------------------
-
-  async update(userId: string, role: string, id: string, dto: UpdateListingDto) {
+  async update(user: Principal, id: string, dto: UpdateListingDto) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
       include: {
@@ -515,10 +522,18 @@ export class ListingsService {
         },
       },
     });
-    if (!listing) throw new NotFoundException('Listing not found');
+    if (!listing || listing.deletedAt) throw new NotFoundException('Listing not found');
 
-    const isAdmin = role === 'admin';
-    if (listing.ownerId !== userId && !isAdmin) {
+    const userId = user.kind === 'user' ? user.userId : user.profileId;
+    if (listing.ownerId !== userId) {
+      if (hasPermission(user, 'listings.review')) {
+        await this.audit.recordStandalone({
+          category: 'security',
+          action: 'listing.admin_edit_blocked',
+          actor: AuditService.actor(user),
+          target: { type: 'listing', id },
+        });
+      }
       throw new ForbiddenException('Not your listing');
     }
 
@@ -526,7 +541,7 @@ export class ListingsService {
       await this.assertInstitutionsExist(dto.institutionIds);
     }
 
-    const data: Prisma.ListingUpdateInput = {
+    const data: Prisma.ListingUpdateManyMutationInput = {
       title: dto.title,
       description: dto.description,
       propertyType: dto.propertyType,
@@ -538,25 +553,38 @@ export class ListingsService {
       amenities: dto.amenities !== undefined ? (dto.amenities as Prisma.InputJsonValue) : undefined,
     };
 
+    let nextStatus = listing.status;
     if (dto.status !== undefined) {
-      data.status = this.resolveStatusTransition(listing.status, dto.status, isAdmin);
-      if (data.status === 'pending') {
+      if (!isOwnerTransitionAllowed(listing.status, dto.status)) {
+        throw new ForbiddenException(`Cannot change status from ${listing.status} to ${dto.status}`);
+      }
+      nextStatus = dto.status;
+      if (nextStatus === 'pending') {
         // Photos sent in this same request count (save-and-submit from Edit).
         await this.assertPublishReady(id, dto.images?.length);
       }
     }
 
     // Moderation can't be bypassed by editing after approval (code review 2026-09-26):
-    // an owner changing any content on a live (approved) or rented listing sends it back
-    // to the admin queue. Otherwise "approve a clean listing, then rewrite it" defeats
-    // the pending gate that root CLAUDE.md §7.5 calls the product's core trust feature.
-    if (
-      !isAdmin &&
-      (listing.status === 'approved' || listing.status === 'rented') &&
-      this.contentChanged(listing, dto)
-    ) {
-      data.status = 'pending';
+    // changing any content on a live (approved) or rented listing sends it back to review.
+    const contentChanged = this.contentChanged(listing, dto);
+    if ((listing.status === 'approved' || listing.status === 'rented') && contentChanged) {
+      nextStatus = 'pending';
     }
+
+    const now = this.clock.now();
+    const entersReview = nextStatus === 'pending' && listing.status !== 'pending';
+    if (entersReview || (contentChanged && listing.status === 'pending')) {
+      // Entering review starts the 5-minute auto-approval clock (D-17). Editing a listing
+      // that is already in review restarts it, so what gets approved is always content a
+      // reviewer had the full window to see. An existing trust hold is always preserved.
+      const window = await this.settings.get<number>('auto_approval_window_seconds');
+      Object.assign(data, submissionFields(now, window, listing));
+    }
+    if (nextStatus !== listing.status) data.status = nextStatus;
+    // Every moderation-relevant change bumps the version, so an admin decision taken on the
+    // old content fails with 409 instead of approving something the reviewer never saw.
+    const bump = contentChanged || nextStatus !== listing.status;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       if (dto.images !== undefined) {
@@ -580,59 +608,36 @@ export class ListingsService {
           });
         }
       }
-      return tx.listing.update({ where: { id }, data, include: LISTING_INCLUDE });
+      const res = await tx.listing.updateMany({
+        where: { id, version: listing.version },
+        data: { ...data, ...(bump ? { version: { increment: 1 } } : {}) },
+      });
+      if (res.count !== 1) {
+        throw new ConflictException({
+          message: 'This listing was just changed (for example by a GHOR reviewer) — reload and try again',
+          code: 'LISTING_VERSION_CONFLICT',
+        });
+      }
+      if (bump) await snapshotListing(tx, id, listing.version + 1);
+      if (entersReview) {
+        await this.audit.record(tx, {
+          category: 'user_action',
+          action: 'listing.submitted',
+          actor: AuditService.actor(user),
+          target: { type: 'listing', id },
+          before: { status: listing.status, version: listing.version },
+          after: { status: 'pending', version: listing.version + 1 },
+        });
+      }
+      return tx.listing.findUniqueOrThrow({ where: { id }, select: OWNER_LISTING_SELECT });
     });
 
     if (updated.locality !== listing.locality || updated.city !== listing.city) {
       this.geocodeInBackground(updated.id, updated.locality, updated.city, updated.state);
     }
-
-    // Owner-visible notification on an admin moderation decision — the owner didn't drive
-    // this change themselves (unlike their own draft->pending/rented<->approved toggles,
-    // which don't need telling them something they just did). Fire-and-forget, same
-    // pattern as the listing_view event and chat's new_message notification.
-    if (isAdmin && (data.status === 'approved' || data.status === 'rejected')) {
-      this.notifyOwner(listing.ownerId, id, data.status, updated.title);
-    }
-
-    return updated;
+    return presentListing(updated);
   }
 
-  private notifyOwner(
-    ownerId: string,
-    listingId: string,
-    status: 'approved' | 'rejected',
-    listingTitle: string,
-  ): void {
-    this.prisma.notification
-      .create({
-        data: {
-          userId: ownerId,
-          type: status === 'approved' ? 'listing_approved' : 'listing_rejected',
-          // Title included so an owner with several listings can tell which one.
-          payload: { listingId, listingTitle },
-        },
-      })
-      .catch(() => {});
-
-    this.push
-      .sendToUser(ownerId, {
-        title: status === 'approved' ? 'Listing approved' : 'Listing rejected',
-        body:
-          status === 'approved'
-            ? 'Your listing is now live and visible to seekers.'
-            : 'Your listing was rejected — check it and resubmit.',
-        data: { type: `listing_${status}`, listingId },
-      })
-      .catch(() => {});
-  }
-
-  // Admins may set any status. Everyone else may only: publish a draft (draft ->
-  // pending), or toggle rented/available on an already-approved listing (approved <->
-  // rented). Anything else — including trying to self-approve, un-reject, etc. — is
-  // rejected. This is the resolution of an ambiguity between root CLAUDE.md §4 ("owner
-  // can mark rented") and §6 ("only admin can change status"): both are true, scoped to
-  // different transitions.
   private contentChanged(
     listing: Prisma.ListingGetPayload<{
       include: {
@@ -689,27 +694,6 @@ export class ListingsService {
     return false;
   }
 
-  private resolveStatusTransition(
-    current: string,
-    requested: string,
-    isAdmin: boolean,
-  ): 'pending' | 'approved' | 'rejected' | 'rented' {
-    if (isAdmin) {
-      return requested as 'pending' | 'approved' | 'rejected' | 'rented';
-    }
-    const allowed =
-      (current === 'draft' && requested === 'pending') ||
-      // Resubmit after rejection — the rejection notification tells owners to fix and
-      // resubmit, which was impossible before (code review 2026-09-26).
-      (current === 'rejected' && requested === 'pending') ||
-      (current === 'approved' && requested === 'rented') ||
-      (current === 'rented' && requested === 'approved');
-    if (!allowed) {
-      throw new ForbiddenException(`Cannot change status from ${current} to ${requested}`);
-    }
-    return requested as 'pending' | 'rented' | 'approved';
-  }
-
   private async assertPublishReady(
     listingId: string,
     incomingImageCount?: number,
@@ -736,12 +720,61 @@ export class ListingsService {
   // Delete
   // ---------------------------------------------------------------------------
 
-  async remove(userId: string, role: string, id: string): Promise<void> {
+  // Owner-only. A listing under trust review (open reports or a hold) can't be deleted —
+  // that would destroy the evidence. The final content is snapshotted and the deletion
+  // audited before the row goes (snapshots/audit rows have no FK, so they survive).
+  // P0-10: "delete" archives. The row, its photos, conversations, messages, reports,
+  // reviews, snapshots and moderation history all stay; the listing just disappears from
+  // every marketplace surface and from the owner's own list.
+  async remove(user: Principal, id: string): Promise<void> {
     const listing = await this.prisma.listing.findUnique({ where: { id } });
-    if (!listing) throw new NotFoundException('Listing not found');
-    if (listing.ownerId !== userId && role !== 'admin') {
+    if (!listing || listing.deletedAt) throw new NotFoundException('Listing not found');
+    const userId = user.kind === 'user' ? user.userId : user.profileId;
+    if (listing.ownerId !== userId) {
+      if (hasPermission(user, 'listings.review')) {
+        await this.audit.recordStandalone({
+          category: 'security',
+          action: 'listing.admin_delete_blocked',
+          actor: AuditService.actor(user),
+          target: { type: 'listing', id },
+        });
+      }
       throw new ForbiddenException('Not your listing');
     }
-    await this.prisma.listing.delete({ where: { id } });
+    const openReports = await this.prisma.report.count({ where: { listingId: id, status: 'pending' } });
+    if (openReports > 0 || listing.heldAt) {
+      throw new ConflictException({
+        message: 'This listing is being reviewed by GHOR and can’t be deleted right now',
+        code: 'LISTING_UNDER_REVIEW',
+      });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await snapshotListing(tx, id, listing.version);
+      await this.audit.record(tx, {
+        category: 'user_action',
+        action: 'listing.deleted_by_owner',
+        actor: AuditService.actor(user),
+        target: { type: 'listing', id },
+        before: { status: listing.status, version: listing.version, title: listing.title },
+        metadata: { mode: 'archived' },
+      });
+      const res = await tx.listing.updateMany({
+        where: { id, version: listing.version, deletedAt: null },
+        data: {
+          deletedAt: new Date(),
+          autoApproveAt: null,
+          claimedById: null,
+          claimedAt: null,
+          claimExpiresAt: null,
+          version: { increment: 1 },
+        },
+      });
+      if (res.count !== 1) {
+        throw new ConflictException({
+          message: 'This listing was just changed — reload and try again',
+          code: 'LISTING_VERSION_CONFLICT',
+        });
+      }
+    });
   }
 }

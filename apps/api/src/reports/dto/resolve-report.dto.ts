@@ -1,8 +1,13 @@
-import { IsIn } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ResolveReportDto {
-  // Mirrors root CLAUDE.md §14.10's admin Reports queue actions exactly: Dismiss (keep
-  // the listing live) or Confirm (revert the listing to `pending` for re-review).
+  // Dismiss (keep the listing as it is) or Confirm (a live or pending listing is held for
+  // human re-review; rejected/rented/paused listings are never moved back to pending).
   @IsIn(['dismiss', 'confirm'])
   action!: 'dismiss' | 'confirm';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
 }

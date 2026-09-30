@@ -13,6 +13,7 @@ import {
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { BaseWsExceptionFilter } from '@nestjs/websockets';
+import { webCorsOrigin } from '../common/cors';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -36,7 +37,10 @@ function conversationRoom(conversationId: string): string {
 // separate namespace at MVP; permissive CORS here matches main.ts's app.enableCors()
 // (also unrestricted) — tighten both together if that ever changes.
 @UseFilters(BaseWsExceptionFilter)
-@WebSocketGateway({ cors: { origin: '*' } })
+// Browser (web chat) connections are allowed only from the marketplace origins in
+// CORS_ALLOWED_ORIGINS (never '*'); native mobile clients send no Origin. Authentication is
+// still the access token checked in handleConnection.
+@WebSocketGateway({ cors: { origin: webCorsOrigin, credentials: false } })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
@@ -62,7 +66,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       throw new WsException('Session expired');
     }
     const active = await this.prisma.profile.count({
-      where: { id: data.userId, banned: false },
+      where: { id: data.userId, banned: false, deletedAt: null },
     });
     if (!active) {
       client.disconnect(true);
@@ -86,9 +90,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         sub: string;
         role: string;
         exp: number;
+        aud?: string;
       }>(token, {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
       });
+      // Only marketplace (user-audience) tokens may open a chat socket.
+      if (payload.aud !== undefined && payload.aud !== 'user') throw new Error('wrong audience');
       (client.data as SocketData).userId = payload.sub;
       (client.data as SocketData).role = payload.role;
       (client.data as SocketData).exp = payload.exp;

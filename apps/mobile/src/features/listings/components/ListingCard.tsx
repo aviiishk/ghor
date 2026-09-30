@@ -1,7 +1,8 @@
 import { Image, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { BadgeCheck, Camera, MapPin, ShieldCheck } from 'lucide-react-native';
+import { BadgeCheck, Camera, MapPin, ShieldCheck, Zap } from 'lucide-react-native';
 import type { Listing } from '../api';
+import { approvalInfo } from '../approval';
 import { amenityIcon, amenityLabel } from '../amenities';
 import { RatingDisplay } from '@/features/reviews/components/RatingDisplay';
 import { colors } from '@/lib/tokens';
@@ -17,7 +18,7 @@ export function ListingCard({ listing, width }: { listing: Listing; width?: numb
     .map(([key]) => key);
   const shown = amenities.slice(0, 3);
   const extra = amenities.length - shown.length;
-  const verified = listing.status === 'approved';
+  const approval = listing.status === 'approved' ? approvalInfo(listing) : null;
 
   return (
     <Pressable
@@ -42,10 +43,14 @@ export function ListingCard({ listing, width }: { listing: Listing; width?: numb
           <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: 'rgba(255,255,255,0.92)' }}>
             <Text className="text-xs font-bold capitalize text-ink">{listing.propertyType}</Text>
           </View>
-          {verified && (
-            <View className="flex-row items-center rounded-full px-2 py-1" style={{ backgroundColor: 'rgba(255,255,255,0.92)', gap: 3 }}>
-              <ShieldCheck size={12} color={colors['success-deep']} />
-              <Text className="text-xs font-bold text-success-deep">Verified</Text>
+          {approval && (
+            <View
+              className="flex-row items-center rounded-full px-2 py-1"
+              style={{ backgroundColor: 'rgba(255,255,255,0.92)', gap: 3 }}
+              accessibilityLabel={approval.label}
+            >
+              {approval.automatic ? <Zap size={12} color={colors.navy} /> : <ShieldCheck size={12} color={colors['success-deep']} />}
+              <Text className={`text-xs font-bold ${approval.automatic ? 'text-navy' : 'text-success-deep'}`}>{approval.shortLabel}</Text>
             </View>
           )}
         </View>

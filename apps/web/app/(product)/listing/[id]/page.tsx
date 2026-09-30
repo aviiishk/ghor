@@ -17,6 +17,7 @@ import {
   Phone,
   Share2,
   ShieldCheck,
+  Zap,
   XCircle,
 } from 'lucide-react';
 import { useListing, useUpdateListing } from '@/features/listings/hooks';
@@ -37,6 +38,7 @@ import {
   PriceHeading,
   formatAvailable,
 } from '@/features/listings/components/ListingDetailView';
+import { approvalInfo } from '@/features/listings/approval';
 import { useOwner } from '@/features/owners/hooks';
 import { describeLastActive, describeResponseTime } from '@/features/owners/api';
 import { trackEvent } from '@/lib/analytics';
@@ -226,7 +228,7 @@ export default function ListingDetailPage() {
               propertyType={listing.propertyType}
               locality={listing.locality}
               city={listing.city}
-              verified={listing.status === 'approved'}
+              approval={listing.status === 'approved' ? approvalInfo(listing) : null}
               propertyVerified={listing.propertyVerified}
               rating={
                 listing.avgRating != null ? (
@@ -397,7 +399,18 @@ export default function ListingDetailPage() {
               </div>
               {!isOwner && (
                 <ul className="mt-6 space-y-2.5 border-t border-navy/[0.08] pt-5 text-sm text-body">
-                  <li className="flex items-center gap-2.5"><ShieldCheck size={16} className="shrink-0 text-success-deep" aria-hidden /> Reviewed by GHOR before going live</li>
+                  {(() => {
+                    const approval = approvalInfo(listing);
+                    return approval ? (
+                      <li className="flex items-start gap-2.5">
+                        {approval.automatic ? <Zap size={16} className="mt-0.5 shrink-0 text-navy" aria-hidden /> : <ShieldCheck size={16} className="mt-0.5 shrink-0 text-success-deep" aria-hidden />}
+                        <span>
+                          {approval.label}
+                          {approval.automatic && <span className="block text-xs text-muted">{approval.description}</span>}
+                        </span>
+                      </li>
+                    ) : null;
+                  })()}
                   <li className="flex items-center gap-2.5"><IndianRupee size={16} className="shrink-0 text-primary" aria-hidden /> No brokerage, no viewing fee</li>
                 </ul>
               )}

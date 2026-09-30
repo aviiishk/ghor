@@ -37,11 +37,11 @@ export async function createReview(
 
 export async function getAdminReviews(hidden?: boolean): Promise<AdminReview[]> {
   const qs = hidden === undefined ? '' : `?hidden=${hidden}`;
-  return apiRequest<AdminReview[]>(`/admin/reviews${qs}`);
+  return apiRequest<AdminReview[]>(`/legacy-admin/reviews${qs}`);
 }
 
 export async function setReviewHidden(id: string, hidden: boolean): Promise<AdminReview> {
-  return apiRequest<AdminReview>(`/admin/reviews/${id}`, {
+  return apiRequest<AdminReview>(`/legacy-admin/reviews/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ hidden }),
   });

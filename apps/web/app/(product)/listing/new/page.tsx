@@ -504,7 +504,7 @@ export default function NewListingPage() {
                   />
                   <div className="mt-8 grid grid-cols-1 gap-10 xl:grid-cols-[minmax(0,1fr)_320px]">
                     <div className="min-w-0">
-                      <ListingHeadline title={title || 'Untitled listing'} propertyType={propertyType} locality={locality || 'Locality'} city="Guwahati" verified={false} />
+                      <ListingHeadline title={title || 'Untitled listing'} propertyType={propertyType} locality={locality || 'Locality'} city="Guwahati" approval={null} />
                       <KeyFacts propertyType={propertyType} rent={Number(rent) || 0} deposit={deposit ? Number(deposit) : null} availableFrom={availableFrom || null} columns={2} />
                       <div className="mt-8 flex items-center gap-4">
                         <Avatar name={profile?.fullName} size="lg" />
@@ -534,7 +534,7 @@ export default function NewListingPage() {
 
               <p className="mt-6 flex items-start gap-2 text-sm text-body">
                 <ShieldCheck size={17} className="mt-0.5 shrink-0 text-success-deep" aria-hidden />
-                After you submit, a person at GHOR checks your listing — usually within a day. You’ll get a notification when it’s live.
+                After you submit, GHOR checks your listing before it goes live. You’ll get a notification when it’s live.
               </p>
             </div>
           )}

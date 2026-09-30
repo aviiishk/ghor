@@ -8,8 +8,8 @@ export function usePendingListings() {
 export function useBulkSetListingStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status: 'approved' | 'rejected' }) =>
-      api.bulkSetListingStatus(ids, status),
+    mutationFn: ({ ids, status, reason }: { ids: string[]; status: 'approved' | 'rejected'; reason: string }) =>
+      api.bulkSetListingStatus(ids, status, reason),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'listings', 'pending'] }),
   });
 }
@@ -34,18 +34,10 @@ export function useAdminUsers() {
   return useQuery({ queryKey: ['admin', 'users'], queryFn: api.getUsers });
 }
 
-export function useSetUserBanned() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, banned }: { id: string; banned: boolean }) => api.setUserBanned(id, banned),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
-  });
-}
-
 export function useSetUserRole() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, role }: { id: string; role: 'seeker' | 'owner' | 'admin' }) =>
+    mutationFn: ({ id, role }: { id: string; role: 'seeker' | 'owner' }) =>
       api.setUserRole(id, role),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
   });
@@ -53,14 +45,6 @@ export function useSetUserRole() {
 
 export function useAppConfig() {
   return useQuery({ queryKey: ['admin', 'config'], queryFn: api.getConfig });
-}
-
-export function useSetConfig() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ key, value }: { key: string; value: unknown }) => api.setConfig(key, value),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'config'] }),
-  });
 }
 
 export function useAdminAnalytics() {
